@@ -16,5 +16,5 @@ task:
     - gmake check RUNTESTFLAGS=-v
     - gmake check RUNTESTFLAGS="-v --dumprestore"
     - gmake install
-    - gmake installcheck RUNTESTFLAGS=-v
-    - gmake installcheck RUNTESTFLAGS="-v --dumprestore"
+    # - gmake installcheck RUNTESTFLAGS=-v
+    # - gmake installcheck RUNTESTFLAGS="-v --dumprestore"
