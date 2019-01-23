@@ -5,6 +5,8 @@ task:
   install_script: pkg install -y bison postgresql10-server gmake libxml2 autoconf automake libtool pkgconf gettext iconv pcre gdal sfcgal geos
   
   build_script:
+    # will be removed
+    - find . -name "*.pl" | xargs sed -i -r 's|/usr/bin/perl|/usr/bin/env perl|'
     - service postgresql oneinitdb
     - service postgresql onestart
     - su -l postgres -c "createuser -s `whoami`"
