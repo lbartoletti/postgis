@@ -3,11 +3,11 @@ freebsd_instance:
 
 task:
   install_script: pkg install -y postgresql10-server gmake libxml2 autoconf automake libtool pkgconf gettext iconv pcre gdal sfcgal geos
-
-build_script:
-  - service postgresql oneinitdb
-  - service postgresql onestart
-  - su -l postgres -c "createuser -s `whoami`"
-  - ./autogen.sh
-  - ./configure CFLAGS="-I/usr/local/include -Wall -fno-omit-frame-pointer -Werror" LDFLAGS="-L/usr/local/lib"
-  - gmake
+  
+  build_script:
+    - service postgresql oneinitdb
+    - service postgresql onestart
+    - su -l postgres -c "createuser -s `whoami`"
+    - ./autogen.sh
+    - ./configure CFLAGS="-I/usr/local/include -Wall -fno-omit-frame-pointer -Werror" LDFLAGS="-L/usr/local/lib"
+    - gmake
