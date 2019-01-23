@@ -13,3 +13,8 @@ task:
     - ./autogen.sh
     - ./configure CFLAGS="-I/usr/local/include -Wall -fno-omit-frame-pointer -Werror" LDFLAGS="-L/usr/local/lib"
     - gmake
+    - gmake check RUNTESTFLAGS=-v
+    - gmake check RUNTESTFLAGS="-v --dumprestore"
+    - gmake install
+    - gmake installcheck RUNTESTFLAGS=-v
+    - gmake installcheck RUNTESTFLAGS="-v --dumprestore"
