@@ -2,7 +2,7 @@ freebsd_instance:
   image: freebsd-12-0-release-amd64
 
 task:
-  install_script: pkg install -y postgresql10-server gmake libxml2 autoconf automake libtool pkgconf gettext iconv pcre gdal sfcgal geos
+  install_script: pkg install -y bison postgresql10-server gmake libxml2 autoconf automake libtool pkgconf gettext iconv pcre gdal sfcgal geos
   
   build_script:
     - service postgresql oneinitdb
