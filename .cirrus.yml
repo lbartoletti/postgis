@@ -24,9 +24,9 @@ task:
     - su -l postgres -c "createuser -s `whoami`"
     - ./autogen.sh
     - ./configure CFLAGS="-I/usr/local/include -Wall -fno-omit-frame-pointer -Werror" LDFLAGS="-L/usr/local/lib"
-    - gmake
-    - gmake check RUNTESTFLAGS=-v
-    - gmake check RUNTESTFLAGS="-v --dumprestore"
-    - gmake install
-    - gmake installcheck RUNTESTFLAGS=-v
-    - gmake installcheck RUNTESTFLAGS="-v --dumprestore"
+    - gmake -j4
+    - gmake -j4 check RUNTESTFLAGS=-v
+    - gmake -j4 check RUNTESTFLAGS="-v --dumprestore"
+    - gmake -j4 install
+    - gmake -j4 installcheck RUNTESTFLAGS=-v
+    - gmake -j4 installcheck RUNTESTFLAGS="-v --dumprestore"
