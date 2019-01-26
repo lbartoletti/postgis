@@ -1,10 +1,10 @@
 freebsd_instance:
   image: freebsd-12-0-release-amd64
-  cpu: 4
-  memory: 8G
+  cpu: 8
+  memory: 16G
 
 task:
-  timeout_in: 240m  
+  timeout_in: 320m  
   sysinfo_script:
     - mount
     - df -h
@@ -13,7 +13,6 @@ task:
     
   install_script: 
     - sed -i.bak -e 's,pkg+http://pkg.FreeBSD.org/\${ABI}/quarterly,pkg+http://pkg.FreeBSD.org/\${ABI}/latest,' /etc/pkg/FreeBSD.conf
-    - pkg upgrade -y
     - pkg install -y bison postgresql10-server gmake libxml2 autoconf automake libtool pkgconf gettext iconv pcre gdal sfcgal geos libxslt cunit
   
   build_script:
