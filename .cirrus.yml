@@ -4,7 +4,7 @@ freebsd_instance:
   memory: 16G
 
 task:
-  timeout_in: 320m  
+  timeout_in: 320m
   sysinfo_script:
     - mount
     - df -h
