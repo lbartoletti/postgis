@@ -22,7 +22,7 @@ task:
     - service postgresql onestart
     - su -l postgres -c "createuser -s `whoami`"
     - ./autogen.sh
-    - ./configure CFLAGS="-I/usr/local/include -Wall -fno-omit-frame-pointer -Werror" LDFLAGS="-L/usr/local/lib" --with-topology --with-sfcgal --with-address-standardizer --with-protobuf --with-wagyu --with-nls
+    - ./configure CFLAGS="-I/usr/local/include -Wall -fno-omit-frame-pointer -Werror" LDFLAGS="-L/usr/local/lib" PKG_CONFIG="/usr/local/bin/pkgconf" --with-topology --with-sfcgal --with-address-standardizer --with-protobuf --with-wagyu --with-nls
     - gmake -j8
     - gmake -j8 check RUNTESTFLAGS=-v
     - gmake -j8 check RUNTESTFLAGS="-v --dumprestore"
