@@ -13,7 +13,7 @@ task:
     
   install_script: 
     - sed -i.bak -e 's,pkg+http://pkg.FreeBSD.org/\${ABI}/quarterly,pkg+http://pkg.FreeBSD.org/\${ABI}/latest,' /etc/pkg/FreeBSD.conf
-    - pkg install -y bison postgresql10-server gmake libxml2 autoconf automake libtool pkgconf gettext iconv pcre gdal sfcgal geos libxslt cunit
+    - pkg install -y bison postgresql11-server gmake libxml2 autoconf automake libtool pkgconf gettext iconv pcre gdal sfcgal geos libxslt cunit protobuf json-c postgresql11-contrib gtk20
   
   build_script:
     # will be removed
@@ -22,7 +22,7 @@ task:
     - service postgresql onestart
     - su -l postgres -c "createuser -s `whoami`"
     - ./autogen.sh
-    - ./configure CFLAGS="-I/usr/local/include -Wall -fno-omit-frame-pointer -Werror" LDFLAGS="-L/usr/local/lib"
+    - ./configure CFLAGS="-I/usr/local/include -Wall -fno-omit-frame-pointer -Werror" LDFLAGS="-L/usr/local/lib" --with-topology --with-sfcgal --with-address-standardizer --with-protobuf --with-wagyu --with-nls
     - gmake -j8
     - gmake -j8 check RUNTESTFLAGS=-v
     - gmake -j8 check RUNTESTFLAGS="-v --dumprestore"
