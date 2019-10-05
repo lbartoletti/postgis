@@ -35,10 +35,14 @@
 Datum geography_centroid(PG_FUNCTION_ARGS);
 
 /* internal functions */
-LWPOINT* geography_centroid_from_wpoints(const uint32_t srid, const POINT3DM* points, const uint32_t size);
+LWPOINT *geography_centroid_from_wpoints(const int32_t srid, const POINT3DM *points, const uint32_t size);
 LWPOINT* geography_centroid_from_mline(const LWMLINE* mline, SPHEROID* s);
 LWPOINT* geography_centroid_from_mpoly(const LWMPOLY* mpoly, bool use_spheroid, SPHEROID* s);
-LWPOINT* cart_to_lwpoint(const double_t x_sum, const double_t y_sum, const double_t z_sum, const double_t weight_sum, const uint32_t srid);
+LWPOINT *cart_to_lwpoint(const double_t x_sum,
+			 const double_t y_sum,
+			 const double_t z_sum,
+			 const double_t weight_sum,
+			 const int32_t srid);
 POINT3D* lonlat_to_cart(const double_t raw_lon, const double_t raw_lat);
 
 /**
@@ -53,10 +57,9 @@ Datum geography_centroid(PG_FUNCTION_ARGS)
     LWPOINT *lwpoint_out = NULL;
 	GSERIALIZED *g = NULL;
 	GSERIALIZED *g_out = NULL;
-    uint32_t srid;
-    bool use_spheroid = true;
-    SPHEROID s;
-	uint32_t type;
+	int32_t srid;
+	bool use_spheroid = true;
+	SPHEROID s;
 
 	/* Get our geometry object loaded into memory. */
 	g = PG_GETARG_GSERIALIZED_P(0);
@@ -74,8 +77,7 @@ Datum geography_centroid(PG_FUNCTION_ARGS)
 	{
 		LWCOLLECTION* empty = lwcollection_construct_empty(COLLECTIONTYPE, srid, 0, 0);
 	 	lwgeom_out = lwcollection_as_lwgeom(empty);
-		lwgeom_set_geodetic(lwgeom_out, true);
-		g_out = gserialized_from_lwgeom(lwgeom_out, 0);
+		g_out = geography_serialize(lwgeom_out);
 		PG_RETURN_POINTER(g_out);
 	}
 
@@ -87,9 +89,7 @@ Datum geography_centroid(PG_FUNCTION_ARGS)
 	if ( ! use_spheroid )
 		s.a = s.b = s.radius;
 
-	type = gserialized_get_type(g);
-
-	switch (type)
+	switch (lwgeom_get_type(lwgeom))
 	{
 
 	case POINTTYPE:
@@ -166,8 +166,7 @@ Datum geography_centroid(PG_FUNCTION_ARGS)
 	PG_FREE_IF_COPY(g, 0);
 
     lwgeom_out = lwpoint_as_lwgeom(lwpoint_out);
-    lwgeom_set_geodetic(lwgeom_out, true);
-    g_out = gserialized_from_lwgeom(lwgeom_out, 0);
+    g_out = geography_serialize(lwgeom_out);
 
 	PG_RETURN_POINTER(g_out);
 }
@@ -177,7 +176,8 @@ Datum geography_centroid(PG_FUNCTION_ARGS)
  * Convert lat-lon-points to x-y-z-coordinates, calculate a weighted average
  * point and return lat-lon-coordinated
  */
-LWPOINT* geography_centroid_from_wpoints(const uint32_t srid, const POINT3DM* points, const uint32_t size)
+LWPOINT *
+geography_centroid_from_wpoints(const int32_t srid, const POINT3DM *points, const uint32_t size)
 {
     double_t x_sum = 0;
     double_t y_sum = 0;
@@ -229,7 +229,12 @@ POINT3D* lonlat_to_cart(const double_t raw_lon, const double_t raw_lat)
     return point;
 }
 
-LWPOINT* cart_to_lwpoint(const double_t x_sum, const double_t y_sum, const double_t z_sum, const double_t weight_sum, const uint32_t srid)
+LWPOINT *
+cart_to_lwpoint(const double_t x_sum,
+		const double_t y_sum,
+		const double_t z_sum,
+		const double_t weight_sum,
+		const int32_t srid)
 {
     double_t x = x_sum / weight_sum;
     double_t y = y_sum / weight_sum;

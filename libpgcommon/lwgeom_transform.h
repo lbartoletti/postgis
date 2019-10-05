@@ -10,8 +10,10 @@
  **********************************************************************/
 
 #include "postgres.h"
+#include "lwgeom_log.h"
 #include "liblwgeom.h"
 #include "lwgeom_pg.h"
+
 
 typedef struct srs_precision
 {
@@ -20,24 +22,19 @@ typedef struct srs_precision
 	int precision_m;
 } srs_precision;
 
-char* GetProj4StringSPI(int srid);
-void SetPROJ4LibPath(void) ;
+char *GetProj4String(int32_t srid);
 
 /**
  * Opaque type to use in the projection cache API.
  */
-typedef void *Proj4Cache ;
+typedef void *ProjCache ;
 
-void SetPROJ4LibPath(void);
-Proj4Cache GetPROJ4Cache(FunctionCallInfo fcinfo) ;
-bool IsInPROJ4Cache(Proj4Cache cache, int srid) ;
-void AddToPROJ4Cache(Proj4Cache cache, int srid, int other_srid);
-void DeleteFromPROJ4Cache(Proj4Cache cache, int srid) ;
-projPJ GetProjectionFromPROJ4Cache(Proj4Cache cache, int srid);
-int GetProjectionsUsingFCInfo(FunctionCallInfo fcinfo, int srid1, int srid2, projPJ *pj1, projPJ *pj2);
-int spheroid_init_from_srid(FunctionCallInfo fcinfo, int srid, SPHEROID *s);
-void srid_is_latlong(FunctionCallInfo fcinfo, int srid);
-srs_precision srid_axis_precision(FunctionCallInfo fcinfo, int srid, int precision);
+bool IsInPROJCache(ProjCache cache, int32_t srid_from, int32_t srid_to);
+PJ *GetPJFromPROJCache(ProjCache cache, int32_t srid_from, int32_t srid_to);
+int GetPJUsingFCInfo(FunctionCallInfo fcinfo, int32_t srid_from, int32_t srid_to, LWPROJ **pj);
+int spheroid_init_from_srid(FunctionCallInfo fcinfo, int32_t srid, SPHEROID *s);
+void srid_check_latlong(FunctionCallInfo fcinfo, int32_t srid);
+srs_precision srid_axis_precision(FunctionCallInfo fcinfo, int32_t srid, int precision);
 
 /**
  * Builtin SRID values

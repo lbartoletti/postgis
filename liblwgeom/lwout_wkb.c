@@ -131,8 +131,7 @@ static uint32_t lwgeom_wkb_type(const LWGEOM *geom, uint8_t variant)
 		wkb_type = WKB_TRIANGLE_TYPE;
 		break;
 	default:
-		lwerror("Unsupported geometry type: %s [%d]",
-			lwtype_name(geom->type), geom->type);
+		lwerror("%s: Unsupported geometry type: %s", __func__, lwtype_name(geom->type));
 	}
 
 	if ( variant & WKB_EXTENDED )
@@ -182,8 +181,8 @@ static uint8_t* endian_to_wkb_buf(uint8_t *buf, uint8_t variant)
 static inline int wkb_swap_bytes(uint8_t variant)
 {
 	/* If requested variant matches machine arch, we don't have to swap! */
-	if ( ((variant & WKB_NDR) && (getMachineEndian() == NDR)) ||
-	     ((! (variant & WKB_NDR)) && (getMachineEndian() == XDR)) )
+	if (((variant & WKB_NDR) && !IS_BIG_ENDIAN) ||
+	    ((!(variant & WKB_NDR)) && IS_BIG_ENDIAN))
 	{
 		return LW_FALSE;
 	}
@@ -193,9 +192,10 @@ static inline int wkb_swap_bytes(uint8_t variant)
 /*
 * Integer32
 */
-static uint8_t* integer_to_wkb_buf(const int ival, uint8_t *buf, uint8_t variant)
+static uint8_t *
+integer_to_wkb_buf(const uint32_t ival, uint8_t *buf, uint8_t variant)
 {
-	char *iptr = (char*)(&ival);
+	uint8_t *iptr = (uint8_t *)(&ival);
 	int i = 0;
 
 	if ( sizeof(int) != WKB_INT_SIZE )
@@ -270,7 +270,7 @@ static uint8_t* double_nan_to_wkb_buf(uint8_t *buf, uint8_t variant)
 */
 static uint8_t* double_to_wkb_buf(const double d, uint8_t *buf, uint8_t variant)
 {
-	char *dptr = (char*)(&d);
+	uint8_t *dptr = (uint8_t *)(&d);
 	int i = 0;
 
 	if ( sizeof(double) != WKB_DOUBLE_SIZE )
@@ -722,7 +722,7 @@ static size_t lwgeom_to_wkb_size(const LWGEOM *geom, uint8_t variant)
 
 		/* Unknown type! */
 		default:
-			lwerror("Unsupported geometry type: %s [%d]", lwtype_name(geom->type), geom->type);
+			lwerror("%s: Unsupported geometry type: %s", __func__, lwtype_name(geom->type));
 	}
 
 	return size;
@@ -770,7 +770,7 @@ static uint8_t* lwgeom_to_wkb_buf(const LWGEOM *geom, uint8_t *buf, uint8_t vari
 
 		/* Unknown type! */
 		default:
-			lwerror("Unsupported geometry type: %s [%d]", lwtype_name(geom->type), geom->type);
+			lwerror("%s: Unsupported geometry type: %s", __func__, lwtype_name(geom->type));
 	}
 	/* Return value to keep compiler happy. */
 	return 0;
@@ -825,10 +825,10 @@ uint8_t* lwgeom_to_wkb(const LWGEOM *geom, uint8_t variant, size_t *size_out)
 	if ( ! (variant & WKB_NDR || variant & WKB_XDR) ||
 	       (variant & WKB_NDR && variant & WKB_XDR) )
 	{
-		if ( getMachineEndian() == NDR )
-			variant = variant | WKB_NDR;
-		else
+		if (IS_BIG_ENDIAN)
 			variant = variant | WKB_XDR;
+		else
+			variant = variant | WKB_NDR;
 	}
 
 	/* Allocate the buffer */

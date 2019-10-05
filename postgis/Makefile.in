@@ -23,6 +23,7 @@
 # **********************************************************************
 
 POSTGIS_PGSQL_VERSION=@POSTGIS_PGSQL_VERSION@
+PROTOC_VERSION=@PROTOC_VERSION@
 MODULE_big=postgis-@POSTGIS_MAJOR_VERSION@
 MODULEDIR=contrib/postgis-@POSTGIS_MAJOR_VERSION@.@POSTGIS_MINOR_VERSION@
 MODULEPATH    = $$libdir/postgis-@POSTGIS_MAJOR_VERSION@
@@ -33,11 +34,11 @@ MODULE_big=postgis-@POSTGIS_MAJOR_VERSION@.@POSTGIS_MINOR_VERSION@
 endif
 
 # Files to be copied to the contrib/ directory
-SQL_built=postgis.sql postgis_for_extension.sql uninstall_postgis.sql postgis_upgrade.sql postgis_upgrade_for_extension.sql postgis_proc_set_search_path.sql legacy.sql uninstall_legacy.sql legacy_minimal.sql legacy_gist.sql
+SQL_built=postgis.sql uninstall_postgis.sql postgis_upgrade.sql postgis_proc_set_search_path.sql legacy.sql uninstall_legacy.sql legacy_minimal.sql legacy_gist.sql
 DATA=../spatial_ref_sys.sql
 
 # SQL objects (files requiring pre-processing)
-SQL_objs=postgis.sql postgis_for_extension.sql legacy.sql legacy_minimal.sql
+SQL_objs=postgis.sql legacy.sql legacy_minimal.sql
 
 GEOM_BACKEND_OBJ = lwgeom_geos.o
 SFCGAL_BACKEND_OBJ = lwgeom_sfcgal.o
@@ -57,7 +58,18 @@ SPGIST_OBJ= gserialized_spgist_2d.o gserialized_spgist_3d.o gserialized_spgist_n
 endif
 
 ifeq (@HAVE_PROTOBUF@,yes)
-PROTOBUF_OBJ=vector_tile.pb-c.o geobuf.pb-c.o
+PROTOBUF_OBJ = vector_tile.pb-c.o
+ifeq (@HAVE_GEOBUF@,yes)
+PROTOBUF_OBJ += geobuf.pb-c.o
+endif
+UTHASH_INCLUDE = -I../deps/uthash/include
+endif
+
+WAGYU_LIBPATH = ../deps/wagyu/@WAGYU_LIB@
+ifeq (@HAVE_WAGYU@,yes)
+WAYGU_INCLUDE = -I../deps/wagyu
+WAYGU_LIB = $(WAGYU_LIBPATH) @WAGYU_LDFLAGS@
+WAGYU_DEP = $(WAGYU_LIBPATH)
 endif
 
 # SQL preprocessor
@@ -76,7 +88,6 @@ PG_OBJS= \
 	lwgeom_box.o \
 	lwgeom_box3d.o \
 	$(BACKEND_OBJ) \
-	lwgeom_backend_api.o \
 	lwgeom_geos_prepared.o \
 	lwgeom_geos_clean.o \
 	lwgeom_geos_relatematch.o \
@@ -100,6 +111,7 @@ PG_OBJS= \
 	gserialized_typmod.o \
 	gserialized_gist_2d.o \
 	gserialized_gist_nd.o \
+	gserialized_supportfn.o \
 	$(SPGIST_OBJ) \
 	brin_2d.o \
 	brin_nd.o \
@@ -117,6 +129,7 @@ PG_OBJS= \
 	lwgeom_out_mvt.o \
 	geobuf.o \
 	lwgeom_out_geobuf.o \
+	lwgeom_out_geojson.o \
 	postgis_legacy.o
 
 # Objects to build using PGXS
@@ -129,8 +142,8 @@ OBJS=$(PG_OBJS)
 # to an existing liblwgeom.so in the PostgreSQL $libdir supplied by an
 # older version of PostGIS, rather than with the static liblwgeom.a
 # supplied with newer versions of PostGIS
-PG_CPPFLAGS += -I../liblwgeom @CFLAGS@ -I../libpgcommon @CPPFLAGS@ -fPIC
-SHLIB_LINK_F = ../libpgcommon/libpgcommon.a ../liblwgeom/.libs/liblwgeom.a @SHLIB_LINK@
+PG_CPPFLAGS += -I../liblwgeom @CFLAGS@ -I../libpgcommon $(WAYGU_INCLUDE) $(UTHASH_INCLUDE) @CPPFLAGS@ @PICFLAGS@
+SHLIB_LINK_F = $(WAYGU_LIB) ../libpgcommon/libpgcommon.a ../liblwgeom/.libs/liblwgeom.a @SHLIB_LINK@
 
 # Add SFCGAL Flags if defined
 ifeq (@SFCGAL@,sfcgal)
@@ -183,7 +196,7 @@ endif
 # Also they are all dependent on postgis_config.h
 # and thus postgis_svn_revision.h
 #
-$(PG_OBJS): ../liblwgeom/.libs/liblwgeom.a ../libpgcommon/libpgcommon.a ../postgis_config.h ../postgis_svn_revision.h
+$(PG_OBJS): ../liblwgeom/.libs/liblwgeom.a ../libpgcommon/libpgcommon.a ../postgis_config.h ../postgis_svn_revision.h $(WAGYU_DEP)
 
 ../postgis_svn_revision.h:
 	$(MAKE) -C .. postgis_svn_revision.h
@@ -193,6 +206,9 @@ $(PG_OBJS): ../liblwgeom/.libs/liblwgeom.a ../libpgcommon/libpgcommon.a ../postg
 
 ../libpgcommon/libpgcommon.a:
 	$(MAKE) -C ../libpgcommon libpgcommon.a
+
+$(WAGYU_LIBPATH):
+	$(MAKE) -C ../deps/wagyu all
 
 # Get protobuf-c compiler command
 PROTOCC=@PROTOCC@
@@ -208,8 +224,10 @@ geobuf.pb-c.c geobuf.pb-c.h: geobuf.proto
 ifeq (@HAVE_PROTOBUF@,yes)
 lwgeom_out_mvt.o: vector_tile.pb-c.h
 mvt.o: vector_tile.pb-c.h
+ifeq (@HAVE_GEOBUF@,yes)
 lwgeom_out_geobuf.o: geobuf.pb-c.h
 geobuf.o: geobuf.pb-c.h
+endif
 endif
 
 # Borrow the $libdir substitution from PGXS but customise by running the preprocessor
@@ -219,28 +237,14 @@ endif
 	$(SQLPP) -I../libpgcommon $< | grep -v '^#' | \
 	$(PERL) -lpe "s'MODULE_PATHNAME'\$(MODULEPATH)'g;s'@extschema@\.''g" > $@
 
-postgis_upgrade_for_extension.sql: postgis_drop_before.sql postgis_upgrade_for_extension.sql.in postgis_drop_after.sql
-	#strip BEGIN/COMMIT since these are not allowed in extensions
-	# WARNING: we should make sure these are not internal to function bodies
-	cat $^ | $(PERL) -pe 's/BEGIN\;//g ; s/COMMIT\;//g' > $@
-
-postgis_for_extension.sql: postgis.sql.in
-	$(SQLPP) -I../libpgcommon $< | grep -v '^#' | \
-	$(PERL) -lpe \
-		"s'MODULE_PATHNAME'\$(MODULEPATH)'g" \
-		| $(PERL) -pe 's/BEGIN\;//g ; s/COMMIT\;//g' > $@
-
 #this is redundant but trying to fold in with extension just hangs
 postgis_upgrade.sql.in: postgis.sql ../utils/postgis_proc_upgrade.pl
-	$(PERL) ../utils/postgis_proc_upgrade.pl $< UNUSED > $@
-
-postgis_upgrade_for_extension.sql.in: postgis_for_extension.sql ../utils/postgis_proc_upgrade.pl
 	$(PERL) ../utils/postgis_proc_upgrade.pl $< UNUSED > $@
 
 postgis_proc_set_search_path.sql: postgis.sql ../utils/postgis_proc_set_search_path.pl
 	$(PERL) ../utils/postgis_proc_set_search_path.pl $< UNUSED > $@
 
-postgis_upgrade.sql: postgis_drop_before.sql postgis_upgrade.sql.in postgis_drop_after.sql
+postgis_upgrade.sql: postgis_before_upgrade.sql postgis_upgrade.sql.in postgis_after_upgrade.sql
 	echo "BEGIN;" > $@
 	cat $^ >> $@
 	echo "COMMIT;" >> $@
@@ -248,7 +252,7 @@ postgis_upgrade.sql: postgis_drop_before.sql postgis_upgrade.sql.in postgis_drop
 sfcgal_upgrade.sql.in: sfcgal.sql ../utils/postgis_proc_upgrade.pl
 	$(PERL) ../utils/postgis_proc_upgrade.pl $< UNUSED > $@
 
-sfcgal_upgrade.sql: sfcgal_upgrade.sql.in postgis_drop_after.sql
+sfcgal_upgrade.sql: sfcgal_upgrade.sql.in postgis_after_upgrade.sql
 	cat $^ > $@
 
 # SQL objects are also dependent on postgis_config.h for PostgreSQL version
@@ -267,5 +271,9 @@ uninstall_sfcgal.sql: sfcgal.sql ../utils/create_undef.pl
 
 distclean: clean
 	rm -f Makefile
+
+check-unit:
+
+check-regress:
 
 maintainer-clean: distclean

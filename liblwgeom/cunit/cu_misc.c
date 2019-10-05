@@ -62,6 +62,14 @@ static void test_misc_simplify(void)
 	lwgeom_free(geom);
 	lwgeom_free(geom2d);
 	lwfree(wkt_out);
+
+	geom = lwgeom_from_wkt("POLYGON((0 0,1 1,1 3,0 4,-2 3,-1 1,0 0))", LW_PARSER_CHECK_NONE);
+	geom2d = lwgeom_simplify(geom, 1, LW_FALSE);
+	wkt_out = lwgeom_to_ewkt(geom2d);
+	CU_ASSERT_STRING_EQUAL("POLYGON((0 0,0 4,-2 3,0 0))", wkt_out);
+	lwgeom_free(geom);
+	lwgeom_free(geom2d);
+	lwfree(wkt_out);
 }
 
 static void test_misc_count_vertices(void)
@@ -234,6 +242,22 @@ static void test_lwmpoint_from_lwgeom(void)
 	do_fn_test(to_points, "TIN(((80 130,50 160,80 70,80 130)),((50 160,10 190,10 70,50 160)))", "MULTIPOINT (80 130, 50 160, 80 70, 80 130, 50 160, 10 190, 10 70, 50 160)");
 }
 
+static void test_gbox_serialized_size(void)
+{
+	lwflags_t flags = lwflags(0, 0, 0);
+	CU_ASSERT_EQUAL(gbox_serialized_size(flags),16);
+	FLAGS_SET_BBOX(flags, 1);
+	CU_ASSERT_EQUAL(gbox_serialized_size(flags),16);
+	FLAGS_SET_Z(flags, 1);
+	CU_ASSERT_EQUAL(gbox_serialized_size(flags),24);
+	FLAGS_SET_M(flags, 1);
+	CU_ASSERT_EQUAL(gbox_serialized_size(flags),32);
+	FLAGS_SET_GEODETIC(flags, 1);
+	CU_ASSERT_EQUAL(gbox_serialized_size(flags),24);
+}
+
+
+
 /*
 ** Used by the test harness to register the tests in this file.
 */
@@ -250,4 +274,5 @@ void misc_suite_setup(void)
 	PG_ADD_TEST(suite, test_grid_in_place);
 	PG_ADD_TEST(suite, test_clone);
 	PG_ADD_TEST(suite, test_lwmpoint_from_lwgeom);
+	PG_ADD_TEST(suite, test_gbox_serialized_size);
 }

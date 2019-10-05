@@ -7,6 +7,7 @@
  * Define just the version numbers; otherwise we get some strange substitutions in postgis.sql.in
  */
 #define POSTGIS_PGSQL_VERSION @POSTGIS_PGSQL_VERSION@
+#define POSTGIS_PGSQL_HR_VERSION @POSTGIS_PGSQL_HR_VERSION@
 #define POSTGIS_GEOS_VERSION @POSTGIS_GEOS_VERSION@
 #define POSTGIS_PROJ_VERSION @POSTGIS_PROJ_VERSION@
 #define POSTGIS_LIB_VERSION '@POSTGIS_LIB_VERSION@'
@@ -15,8 +16,29 @@
 
 #if POSTGIS_PGSQL_VERSION >= 96
 #define _PARALLEL PARALLEL SAFE
+#define _PARALLEL_RESTRICTED PARALLEL RESTRICTED
 #else
 #define _PARALLEL
+#define _PARALLEL_RESTRICTED
+#endif
+
+/*
+ * High costs can only be used for PostGIS 3/PgSQL 12
+ * where the support functions have been used in
+ * place of index SQL inlining.
+ * See https://trac.osgeo.org/postgis/ticket/3675
+ * for sideffects of costing inlined SQL.
+ */
+#if POSTGIS_PGSQL_VERSION >= 120
+#define _COST_DEFAULT COST 1
+#define _COST_LOW COST 100
+#define _COST_MEDIUM COST 1000
+#define _COST_HIGH COST 10000
+#else
+#define _COST_DEFAULT COST 1
+#define _COST_LOW COST 1
+#define _COST_MEDIUM COST 10
+#define _COST_HIGH COST 10
 #endif
 
 /*

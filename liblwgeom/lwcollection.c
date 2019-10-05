@@ -38,10 +38,8 @@ lwcollection_release(LWCOLLECTION *lwcollection)
 	lwgeom_release(lwcollection_as_lwgeom(lwcollection));
 }
 
-
 LWCOLLECTION *
-lwcollection_construct(uint8_t type, int srid, GBOX *bbox,
-                       uint32_t ngeoms, LWGEOM **geoms)
+lwcollection_construct(uint8_t type, int32_t srid, GBOX *bbox, uint32_t ngeoms, LWGEOM **geoms)
 {
 	LWCOLLECTION *ret;
 	int hasz, hasm;
@@ -79,7 +77,7 @@ lwcollection_construct(uint8_t type, int srid, GBOX *bbox,
 
 	ret = lwalloc(sizeof(LWCOLLECTION));
 	ret->type = type;
-	ret->flags = gflags(hasz,hasm,0);
+	ret->flags = lwflags(hasz,hasm,0);
 	FLAGS_SET_BBOX(ret->flags, bbox?1:0);
 	ret->srid = srid;
 	ret->ngeoms = ngeoms;
@@ -91,15 +89,18 @@ lwcollection_construct(uint8_t type, int srid, GBOX *bbox,
 }
 
 LWCOLLECTION *
-lwcollection_construct_empty(uint8_t type, int srid, char hasz, char hasm)
+lwcollection_construct_empty(uint8_t type, int32_t srid, char hasz, char hasm)
 {
 	LWCOLLECTION *ret;
 	if( ! lwtype_is_collection(type) )
+	{
 		lwerror("Non-collection type specified in collection constructor!");
+		return NULL;
+	}
 
 	ret = lwalloc(sizeof(LWCOLLECTION));
 	ret->type = type;
-	ret->flags = gflags(hasz,hasm,0);
+	ret->flags = lwflags(hasz,hasm,0);
 	ret->srid = srid;
 	ret->ngeoms = 0;
 	ret->maxgeoms = 1; /* Allocate room for sub-members, just in case. */

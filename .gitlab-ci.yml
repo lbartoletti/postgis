@@ -1,7 +1,9 @@
 test:
+  image: debian:buster
   script:
     - apt-get update -qq && apt-get install -y
-        postgresql-9.6 postgresql-server-dev-9.6
+        bison flex
+        postgresql-11 postgresql-server-dev-11
         build-essential autoconf libtool libcunit1-dev
         xsltproc docbook-xsl docbook-mathml dblatex
         libproj-dev libgdal-dev libgeos-dev libjson-c-dev
@@ -10,10 +12,13 @@ test:
     - service postgresql start
     - su -l postgres -c "createuser -s `whoami`"
     - ./autogen.sh
+    - ./configure
+    - make maintainer-clean
+    - ./autogen.sh
     - ./configure CFLAGS="-Wall -fno-omit-frame-pointer -Werror"
     - make
-    - make check RUNTESTFLAGS=-v
-    - make check RUNTESTFLAGS="-v --dumprestore"
+    - RUNTESTFLAGS=-v make check
+    - RUNTESTFLAGS="-v --dumprestore" make check
     - make install
-    - make installcheck RUNTESTFLAGS=-v
-    - make installcheck RUNTESTFLAGS="-v --dumprestore"
+    - RUNTESTFLAGS=-v make installcheck
+    - RUNTESTFLAGS="-v --dumprestore" make installcheck

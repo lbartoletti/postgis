@@ -1,11 +1,3 @@
-
---
--- spatial_ref_sys data
---
-INSERT INTO "spatial_ref_sys" ("srid","auth_name","auth_srid","proj4text") VALUES (4326,'EPSG',4326,'+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs ');
-
-INSERT INTO "spatial_ref_sys" ("srid", "proj4text") VALUES (102189, '+proj=tmerc +lat_0=4.599047222222222 +lon_0=-74.08091666666667 +k=1.000000 +x_0=1000000 +y_0=1000000 +ellps=intl +towgs84=307,304,-318,0,0,0,0 +units=m +no_defs ');
-
 --
 -- GML
 --
@@ -61,18 +53,7 @@ SELECT 'kml_empty_geom', ST_AsKML(geography(ST_GeomFromEWKT(NULL)));
 SELECT 'kml_precision_01', ST_AsKML(geography(ST_GeomFromEWKT('SRID=4326;POINT(1.1111111 1.1111111)')), -2);
 SELECT 'kml_precision_02', ST_AsKML(geography(ST_GeomFromEWKT('SRID=4326;POINT(1.1111111 1.1111111)')), 19);
 
--- Version
-SELECT 'kml_version_01', ST_AsKML(2, geography(ST_GeomFromEWKT('SRID=4326;POINT(1 1)')));
-SELECT 'kml_version_02', ST_AsKML(3, geography(ST_GeomFromEWKT('SRID=4326;POINT(1 1)')));
-SELECT 'kml_version_03', ST_AsKML(-4, geography(ST_GeomFromEWKT('SRID=4326;POINT(1 1)')));
-
--- Prefix
-SELECT 'kml_prefix_01', ST_AsKML(2, geography(ST_GeomFromEWKT('SRID=4326;POINT(1 2)')), 0, '');
-SELECT 'kml_prefix_02', ST_AsKML(2, geography(ST_GeomFromEWKT('SRID=4326;POINT(1 2)')), 0, 'kml');
-
--- Projected
--- National Astronomical Observatory of Colombia - Bogota, Colombia (Placemark)
-SELECT 'kml_projection_01', ST_AsKML(geography(ST_GeomFromEWKT('SRID=102189;POINT(1000000 1000000)')), 3);
+-- Projected -- there's no projected geography
 
 --
 -- SVG
@@ -101,11 +82,6 @@ SELECT 'geojson_empty_geom', ST_AsGeoJSON(geography(ST_GeomFromEWKT(NULL)));
 -- Precision
 SELECT 'geojson_precision_01', ST_AsGeoJSON(geography(ST_GeomFromEWKT('SRID=4326;POINT(1.1111111 1.1111111)')), -2);
 SELECT 'geojson_precision_02', ST_AsGeoJSON(geography(ST_GeomFromEWKT('SRID=4326;POINT(1.1111111 1.1111111)')), 19);
-
--- Version
-SELECT 'geojson_version_01', ST_AsGeoJSON(1, geography(ST_GeomFromEWKT('SRID=4326;POINT(1 1)')));
-SELECT 'geojson_version_02', ST_AsGeoJSON(21, geography(ST_GeomFromEWKT('SRID=4326;POINT(1 1)')));
-SELECT 'geojson_version_03', ST_AsGeoJSON(-4, geography(ST_GeomFromEWKT('SRID=4326;POINT(1 1)')));
 
 -- CRS
 SELECT 'geojson_crs_01', ST_AsGeoJSON(geography(ST_GeomFromEWKT('SRID=4326;POINT(1 1)')), 0, 2);
@@ -146,9 +122,3 @@ SELECT 'geojson_options_16', ST_AsGeoJSON(geography(ST_GeomFromEWKT('SRID=4326;L
 -- Precision
 SELECT 'text_precision_01', ST_AsText(geography(GeomFromEWKT('SRID=4326;POINT(111.1111111 1.1111111)')));
 SELECT 'text_precision_02', ST_AsText(geography(GeomFromEWKT('SRID=4326;POINT(111.1111111 1.1111111)')),2);
-
-
---
--- Delete inserted spatial data
---
-DELETE FROM spatial_ref_sys;

@@ -31,15 +31,14 @@
 #include "liblwgeom_internal.h"
 #include "lwgeom_log.h"
 
-
 LWCURVEPOLY *
-lwcurvepoly_construct_empty(int srid, char hasz, char hasm)
+lwcurvepoly_construct_empty(int32_t srid, char hasz, char hasm)
 {
 	LWCURVEPOLY *ret;
 
 	ret = lwalloc(sizeof(LWCURVEPOLY));
 	ret->type = CURVEPOLYTYPE;
-	ret->flags = gflags(hasz, hasm, 0);
+	ret->flags = lwflags(hasz, hasm, 0);
 	ret->srid = srid;
 	ret->nrings = 0;
 	ret->maxrings = 1; /* Allocate room for sub-members, just in case. */

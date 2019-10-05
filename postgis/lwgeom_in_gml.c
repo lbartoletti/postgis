@@ -68,7 +68,7 @@ static LWGEOM* parse_gml(xmlNodePtr xnode, bool *hasz, int *root_srid);
 
 typedef struct struct_gmlSrs
 {
-	int srid;
+	int32_t srid;
 	bool reverse_axis;
 }
 gmlSrs;
@@ -108,7 +108,7 @@ Datum geom_from_gml(PG_FUNCTION_ARGS)
 	if (PG_ARGISNULL(0)) PG_RETURN_NULL();
 	xml_input = PG_GETARG_TEXT_P(0);
 	xml = text_to_cstring(xml_input);
-	xml_size = VARSIZE(xml_input) - VARHDRSZ;
+	xml_size = VARSIZE_ANY_EXHDR(xml_input);
 
 	/* Zero for undefined */
 	root_srid = PG_GETARG_INT32(1);
@@ -292,43 +292,96 @@ static xmlNodePtr get_xlink_node(xmlNodePtr xnode)
 }
 
 
+
 /**
- * Use Proj4 to reproject a given POINTARRAY
+ * Use Proj to reproject a given POINTARRAY
  */
-static POINTARRAY* gml_reproject_pa(POINTARRAY *pa, int srid_in, int srid_out)
+
+#if POSTGIS_PROJ_VERSION < 60
+
+static POINTARRAY *
+gml_reproject_pa(POINTARRAY *pa, int32_t srid_in, int32_t srid_out)
 {
-	projPJ in_pj, out_pj;
+	PJ pj;
 	char *text_in, *text_out;
 
 	if (srid_in == SRID_UNKNOWN) return pa; /* nothing to do */
 	if (srid_out == SRID_UNKNOWN) gml_lwpgerror("invalid GML representation", 3);
 
-	text_in = GetProj4StringSPI(srid_in);
-	text_out = GetProj4StringSPI(srid_out);
+	text_in = GetProj4String(srid_in);
+	text_out = GetProj4String(srid_out);
 
-	in_pj = lwproj_from_string(text_in);
-	out_pj = lwproj_from_string(text_out);
+	pj.pj_from = projpj_from_string(text_in);
+	pj.pj_to = projpj_from_string(text_out);
 
 	lwfree(text_in);
 	lwfree(text_out);
 
-	if ( ptarray_transform(pa, in_pj, out_pj) == LW_FAILURE )
+	if ( ptarray_transform(pa, &pj) == LW_FAILURE )
 	{
 		elog(ERROR, "gml_reproject_pa: reprojection failed");
 	}
 
-	pj_free(in_pj);
-	pj_free(out_pj);
+	pj_free(pj.pj_from);
+	pj_free(pj.pj_to);
 
 	return pa;
 }
+#else
+/*
+ * TODO: rework GML projection handling to skip the spatial_ref_sys
+ * lookups, and use the Proj 6+ EPSG catalogue and built-in SRID
+ * lookups directly. Drop this ugly hack.
+ */
+static POINTARRAY *
+gml_reproject_pa(POINTARRAY *pa, int32_t epsg_in, int32_t epsg_out)
+{
+	PJ *pj;
+	LWPROJ *lwp;
+	char text_in[16];
+	char text_out[16];
+
+	if (epsg_in == SRID_UNKNOWN)
+		return pa; /* nothing to do */
+
+	if (epsg_out == SRID_UNKNOWN)
+	{
+		gml_lwpgerror("invalid GML representation", 3);
+		return NULL;
+	}
+
+	snprintf(text_in, 16, "EPSG:%d", epsg_in);
+	snprintf(text_out, 16, "EPSG:%d", epsg_out);
+	pj = proj_create_crs_to_crs(NULL, text_in, text_out, NULL);
+
+	lwp = lwproj_from_PJ(pj, LW_FALSE);
+	if (!lwp)
+	{
+		proj_destroy(pj);
+		gml_lwpgerror("Could not create LWPROJ*", 57);
+		return NULL;
+	}
+
+	if (ptarray_transform(pa, lwp) == LW_FAILURE)
+	{
+		proj_destroy(pj);
+		elog(ERROR, "gml_reproject_pa: reprojection failed");
+		return NULL;
+	}
+	proj_destroy(pj);
+	pfree(lwp);
+
+	return pa;
+}
+#endif /* POSTGIS_PROJ_VERSION */
 
 
 /**
  * Return 1 if given srid is planar (0 otherwise, i.e geocentric srid)
  * Return -1 if srid is not in spatial_ref_sys
  */
-static int gml_is_srid_planar(int srid)
+static int
+gml_is_srid_planar(int32_t srid)
 {
 	char *result;
 	char query[256];

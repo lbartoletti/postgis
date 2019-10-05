@@ -39,8 +39,8 @@
 /* construct a new LWPOLY.  arrays (points/points per ring) will NOT be copied
  * use SRID=SRID_UNKNOWN for unknown SRID (will have 8bit type's S = 0)
  */
-LWPOLY*
-lwpoly_construct(int srid, GBOX *bbox, uint32_t nrings, POINTARRAY **points)
+LWPOLY *
+lwpoly_construct(int32_t srid, GBOX *bbox, uint32_t nrings, POINTARRAY **points)
 {
 	LWPOLY *result;
 	int hasz, hasm;
@@ -65,7 +65,7 @@ lwpoly_construct(int srid, GBOX *bbox, uint32_t nrings, POINTARRAY **points)
 
 	result = (LWPOLY*) lwalloc(sizeof(LWPOLY));
 	result->type = POLYGONTYPE;
-	result->flags = gflags(hasz, hasm, 0);
+	result->flags = lwflags(hasz, hasm, 0);
 	FLAGS_SET_BBOX(result->flags, bbox?1:0);
 	result->srid = srid;
 	result->nrings = nrings;
@@ -95,7 +95,7 @@ lwpoly_construct_rectangle(char hasz, char hasm, POINT4D *p1, POINT4D *p2,
 }
 
 LWPOLY *
-lwpoly_construct_envelope(int srid, double x1, double y1, double x2, double y2)
+lwpoly_construct_envelope(int32_t srid, double x1, double y1, double x2, double y2)
 {
 	POINT4D p1, p2, p3, p4;
 	LWPOLY *poly;
@@ -116,8 +116,8 @@ lwpoly_construct_envelope(int srid, double x1, double y1, double x2, double y2)
 	return poly;
 }
 
-LWPOLY*
-lwpoly_construct_circle(int srid, double x, double y, double radius, uint32_t segments_per_quarter, char exterior)
+LWPOLY *
+lwpoly_construct_circle(int32_t srid, double x, double y, double radius, uint32_t segments_per_quarter, char exterior)
 {
 	const uint32_t segments = 4*segments_per_quarter;
 	double theta;
@@ -157,12 +157,12 @@ lwpoly_construct_circle(int srid, double x, double y, double radius, uint32_t se
 	return lwpoly;
 }
 
-LWPOLY*
-lwpoly_construct_empty(int srid, char hasz, char hasm)
+LWPOLY *
+lwpoly_construct_empty(int32_t srid, char hasz, char hasm)
 {
 	LWPOLY *result = lwalloc(sizeof(LWPOLY));
 	result->type = POLYGONTYPE;
-	result->flags = gflags(hasz,hasm,0);
+	result->flags = lwflags(hasz,hasm,0);
 	result->srid = srid;
 	result->nrings = 0;
 	result->maxrings = 1; /* Allocate room for ring, just in case. */
@@ -362,7 +362,7 @@ lwpoly_from_lwlines(const LWLINE *shell,
 {
 	uint32_t nrings;
 	POINTARRAY **rings = lwalloc((nholes+1)*sizeof(POINTARRAY *));
-	int srid = shell->srid;
+	int32_t srid = shell->srid;
 	LWPOLY *ret;
 
 	if ( shell->points->npoints < 4 )
@@ -532,19 +532,29 @@ int
 lwpoly_contains_point(const LWPOLY *poly, const POINT2D *pt)
 {
 	uint32_t i;
+	int t;
 
 	if ( lwpoly_is_empty(poly) )
-		return LW_FALSE;
+		return LW_OUTSIDE;
 
-	if ( ptarray_contains_point(poly->rings[0], pt) == LW_OUTSIDE )
-		return LW_FALSE;
+	t = ptarray_contains_point(poly->rings[0], pt);
 
-	for ( i = 1; i < poly->nrings; i++ )
+	if (t == LW_INSIDE)
 	{
-		if ( ptarray_contains_point(poly->rings[i], pt) == LW_INSIDE )
-			return LW_FALSE;
+		for (i = 1; i < poly->nrings; i++)
+		{
+			t = ptarray_contains_point(poly->rings[i], pt);
+			if (t == LW_INSIDE)
+				return LW_OUTSIDE;
+			if (t == LW_BOUNDARY)
+			{
+				return LW_BOUNDARY;
+			}
+		}
+		return LW_INSIDE;
 	}
-	return LW_TRUE;
+	else
+		return t;
 }
 
 

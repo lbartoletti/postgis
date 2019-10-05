@@ -3,17 +3,6 @@
 -- referenced by bug number for historical interest.
 --
 SET client_min_messages TO NOTICE;
--- NOTE: some tests _require_ spatial_ref_sys entries.
--- In particular, the GML output ones want auth_name and auth_srid too,
--- so we provide one for EPSG:4326
-DELETE FROM spatial_ref_sys;
-INSERT INTO spatial_ref_sys ( srid, proj4text ) VALUES ( 32611, '+proj=utm +zone=11 +ellps=WGS84 +datum=WGS84 +units=m +no_defs' );
-INSERT INTO spatial_ref_sys ( auth_name, auth_srid, srid, proj4text ) VALUES ( 'EPSG', 4326, 4326, '+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs' );
-INSERT INTO spatial_ref_sys ( srid, proj4text ) VALUES ( 32602, '+proj=utm +zone=2 +ellps=WGS84 +datum=WGS84 +units=m +no_defs ' );
-INSERT INTO spatial_ref_sys ( srid, proj4text ) VALUES ( 32702, '+proj=utm +zone=2 +south +ellps=WGS84 +datum=WGS84 +units=m +no_defs ' );
-INSERT INTO spatial_ref_sys ( srid, proj4text ) VALUES ( 3395, '+proj=merc +lon_0=0 +k=1 +x_0=0 +y_0=0 +ellps=WGS84 +datum=WGS84 +units=m +no_defs ' );
-
-INSERT INTO spatial_ref_sys (srid,proj4text) VALUES (32707,'+proj=utm +zone=7 +south +ellps=WGS84 +datum=WGS84 +units=m +no_defs ');
 
 -- #2 --
 SELECT '#2', ST_AsText(ST_Union(g)) FROM
@@ -28,7 +17,7 @@ FROM (SELECT '01020000000200000050E8303FC2E85141B017CFC05A825541000000E0C0E85141
 	 (SELECT 'LINESTRING(4694792.35840419 5638508.89950758,4694793.20840419 5638506.34950758)'::geometry AS g) b;
 
 -- #21 --
-SELECT '#21', ST_AsEWKT(ST_Locate_Along_Measure(g, 4566)) FROM
+SELECT '#21', ST_AsEWKT(ST_LocateAlong(g, 4566)) FROM
 ( VALUES
 (ST_GeomFromEWKT('SRID=31293;LINESTRINGM( 6193.76 5337404.95 4519, 6220.13 5337367.145 4566, 6240.889 5337337.383 4603 )'))
 ) AS v(g);
@@ -85,7 +74,7 @@ SELECT '#85', ST_Distance(ST_GeomFromText('CIRCULARSTRING(220268 150415,220227 1
 SELECT '#112', ST_AsText(ST_CurveToLine('GEOMETRYCOLLECTION(POINT(-10 50))'::geometry));
 
 -- #113 --
-SELECT '#113', ST_Locate_Along_Measure('LINESTRING(0 0 0, 1 1 1)', 0.5);
+SELECT '#113', ST_LocateAlong('LINESTRING(0 0 0, 1 1 1)', 0.5);
 
 -- #116 --
 SELECT '#116', ST_AsText('010300000000000000');
@@ -569,6 +558,7 @@ FROM inp;
 insert into spatial_ref_sys (srid, proj4text) values (500001,NULL);
 insert into spatial_ref_sys (srid, proj4text) values (500002, '+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs');
 select '#1150', st_astext(st_transform('SRID=500002;POINT(0 0)'::geometry,500001));
+delete from spatial_ref_sys where srid in (500001,500002);
 
 -- #1038
 select '#1038', ST_AsSVG('POLYGON EMPTY'::geometry);
@@ -597,7 +587,7 @@ with inp as (
  select ST_Collect('POLYGON EMPTY', 'POLYGON EMPTY') as mp,
         'POINT(0 0)'::geometry as p
 )
-select '#1578', _st_within(p, mp), _st_intersects(p, mp) FROM inp;
+select '#1578', st_within(p, mp), st_intersects(p, mp) FROM inp;
 
 -- #1580
 select '#1580.1', ST_Summary(ST_Transform('SRID=4326;POINT(0 0)'::geometry, 3395));
@@ -1092,8 +1082,6 @@ SELECT '#4055b', ST_SRID(unnest(ST_ClusterIntersecting(ARRAY['SRID=4326;POINT (3
 --#4089
 select '#4089', st_astext(st_geomfromtwkb(st_AsTWKB(st_GeometryFromText('LINESTRING Z(1 1 1, 3 3 1)'), 1, 0, 0, false, true)));
 
-select '#4103', ST_Intersects(ST_PointOnSurface('0103000020110F0000010000000A000000000000C41E644741000000EEA2A75A41000000F420644741000000629EA75A410000007A2D644741000000E49FA75A41000000C02E644741000000409DA75A41000000286A64474100000064A4A75A410000007867644741000000FAA9A75A41000000E82B644741000000D2A2A75A41000000222D64474100000046A0A75A41000000242B6447410000006CA4A75A41000000C41E644741000000EEA2A75A41'::geometry), '0103000020110F0000010000000A000000000000C41E644741000000EEA2A75A41000000F420644741000000629EA75A410000007A2D644741000000E49FA75A41000000C02E644741000000409DA75A41000000286A64474100000064A4A75A410000007867644741000000FAA9A75A41000000E82B644741000000D2A2A75A41000000222D64474100000046A0A75A41000000242B6447410000006CA4A75A41000000C41E644741000000EEA2A75A41'::geometry);
-
 -- #4081
 select '#4081',
 ST_DWithin(a, b, 110575, true) as within_110575_true,
@@ -1114,7 +1102,185 @@ INSERT INTO bug_4144_table (geom)
 ANALYZE bug_4144_table;
 DROP TABLE IF EXISTS bug_4144_table;
 
--- Clean up
-DELETE FROM spatial_ref_sys;
+--4295
+-- CIP - collection within polygon
+SELECT 'contains210', ST_contains('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(5 5),LINESTRING(1 1,2 2))'::geometry);
+-- CIP - collection on edge of polygon
+SELECT 'contains211', ST_contains('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(10 10), LINESTRING(0 0, 0 10))'::geometry);
+-- CIP - collection outside polygon
+SELECT 'contains212', ST_contains('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(-1 0),LINESTRING(11 5,12 5))'::geometry);
+-- CIP - elements of the collection fully outside and fully inside polygon
+SELECT 'contains213', ST_contains('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(-1 0), LINESTRING(4 4,5 5))'::geometry);
+
+-- CIP - collection within polygon
+SELECT 'within210', ST_within('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(5 5),LINESTRING(1 1,2 2))'::geometry);
+-- CIP - collection on edge of polygon
+SELECT 'within211', ST_within('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(10 10), LINESTRING(0 0, 0 10))'::geometry);
+-- CIP - collection outside polygon
+SELECT 'within212', ST_within('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(-1 0),LINESTRING(11 5,12 5))'::geometry);
+-- CIP - elements of the collection fully outside and fully inside polygon
+SELECT 'within213', ST_within('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(-1 0), LINESTRING(4 4,5 5))'::geometry);
+
+-- CIP - collection within polygon
+SELECT 'containsproperly210', ST_containsproperly('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(5 5),LINESTRING(1 1,2 2))'::geometry);
+-- CIP - collection on edge of polygon
+SELECT 'containsproperly211', ST_containsproperly('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(10 10), LINESTRING(0 0, 0 10))'::geometry);
+-- CIP - collection outside polygon
+SELECT 'containsproperly212', ST_containsproperly('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(-1 0),LINESTRING(11 5,12 5))'::geometry);
+-- CIP - elements of the collection fully outside and fully inside polygon
+SELECT 'containsproperly213', ST_containsproperly('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(-1 0), LINESTRING(4 4,5 5))'::geometry);
+
+-- CIP - collection within polygon
+SELECT 'overlaps210', ST_overlaps('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(5 5),LINESTRING(1 1,2 2))'::geometry);
+-- CIP - collection on edge of polygon
+SELECT 'overlaps211', ST_overlaps('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(10 10), LINESTRING(0 0, 0 10))'::geometry);
+-- CIP - collection outside polygon
+SELECT 'overlaps212', ST_overlaps('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(-1 0),LINESTRING(11 5,12 5))'::geometry);
+-- CIP - elements of the collection fully outside and fully inside polygon
+SELECT 'overlaps213', ST_overlaps('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(-1 0), LINESTRING(4 4,5 5))'::geometry);
+
+-- CIP - collection within polygon
+SELECT 'covers210', ST_covers('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(5 5),LINESTRING(1 1,2 2))'::geometry);
+-- CIP - collection on edge of polygon
+SELECT 'covers211', ST_covers('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(10 10), LINESTRING(0 0, 0 10))'::geometry);
+-- CIP - collection outside polygon
+SELECT 'covers212', ST_covers('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(-1 0),LINESTRING(11 5,12 5))'::geometry);
+-- CIP - elements of the collection fully outside and fully inside polygon
+SELECT 'covers213', ST_covers('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(-1 0), LINESTRING(4 4,5 5))'::geometry);
+
+-- CIP - collection within polygon
+SELECT 'coveredby210', ST_coveredby('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(5 5),LINESTRING(1 1,2 2))'::geometry);
+-- CIP - collection on edge of polygon
+SELECT 'coveredby211', ST_coveredby('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(10 10), LINESTRING(0 0, 0 10))'::geometry);
+-- CIP - collection outside polygon
+SELECT 'coveredby212', ST_coveredby('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(-1 0),LINESTRING(11 5,12 5))'::geometry);
+-- CIP - elements of the collection fully outside and fully inside polygon
+SELECT 'coveredby213', ST_coveredby('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(-1 0), LINESTRING(4 4,5 5))'::geometry);
+
+-- CIP - collection within polygon
+SELECT 'crosses210', ST_crosses('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(5 5),LINESTRING(1 1,2 2))'::geometry);
+-- CIP - collection on edge of polygon
+SELECT 'crosses211', ST_crosses('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(10 10), LINESTRING(0 0, 0 10))'::geometry);
+-- CIP - collection outside polygon
+SELECT 'crosses212', ST_crosses('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(-1 0),LINESTRING(11 5,12 5))'::geometry);
+-- CIP - elements of the collection fully outside and fully inside polygon
+SELECT 'crosses213', ST_crosses('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(-1 0), LINESTRING(4 4,5 5))'::geometry);
+
+-- CIP - collection within polygon
+SELECT 'touches210', ST_touches('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(5 5),LINESTRING(1 1,2 2))'::geometry);
+-- CIP - collection on edge of polygon
+SELECT 'touches211', ST_touches('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(10 10), LINESTRING(0 0, 0 10))'::geometry);
+-- CIP - collection outside polygon
+SELECT 'touches212', ST_touches('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(-1 0),LINESTRING(11 5,12 5))'::geometry);
+-- CIP - elements of the collection fully outside and fully inside polygon
+SELECT 'touches213', ST_touches('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(-1 0), LINESTRING(4 4,5 5))'::geometry);
+
+-- CIP - collection within polygon
+SELECT 'disjoint210', ST_disjoint('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(5 5),LINESTRING(1 1,2 2))'::geometry);
+-- CIP - collection on edge of polygon
+SELECT 'disjoint211', ST_disjoint('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(10 10), LINESTRING(0 0, 0 10))'::geometry);
+-- CIP - collection outside polygon
+SELECT 'disjoint212', ST_disjoint('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(-1 0),LINESTRING(11 5,12 5))'::geometry);
+-- CIP - elements of the collection fully outside and fully inside polygon
+SELECT 'disjoint213', ST_disjoint('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(-1 0), LINESTRING(4 4,5 5))'::geometry);
+
+-- CIP - collection within polygon
+SELECT 'relate210', ST_relate('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(5 5),LINESTRING(1 1,2 2))'::geometry);
+-- CIP - collection on edge of polygon
+SELECT 'relate211', ST_relate('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(10 10), LINESTRING(0 0, 0 10))'::geometry);
+-- CIP - collection outside polygon
+SELECT 'relate212', ST_relate('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(-1 0),LINESTRING(11 5,12 5))'::geometry);
+-- CIP - elements of the collection fully outside and fully inside polygon
+SELECT 'relate213', ST_relate('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(-1 0), LINESTRING(4 4,5 5))'::geometry);
+
+-- CIP - collection within polygon
+SELECT 'relate_pattern210', ST_relate('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(5 5),LINESTRING(1 1,2 2))'::geometry, 'FF*FF****');
+-- CIP - collection on edge of polygon
+SELECT 'relate_pattern211', ST_relate('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(10 10), LINESTRING(0 0, 0 10))'::geometry, 'FF*FF****');
+-- CIP - collection outside polygon
+SELECT 'relate_pattern212', ST_relate('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(-1 0),LINESTRING(11 5,12 5))'::geometry, 'FF*FF****');
+-- CIP - elements of the collection fully outside and fully inside polygon
+SELECT 'relate_pattern213', ST_relate('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry, 'GEOMETRYCOLLECTION (POINT(-1 0), LINESTRING(4 4,5 5))'::geometry, 'FF*FF****');
+
+-- equals - element inside polygon
+SELECT 'equals210', ST_equals('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry,
+'GEOMETRYCOLLECTION (POLYGON((0 0, 10 0, 10 10, 0 10, 0 0)),LINESTRING(0 2, 0 5))'::geometry);
+-- equals - element on border of polygon
+SELECT 'equals211', ST_equals('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry,
+'GEOMETRYCOLLECTION (POLYGON((0 0, 10 0, 10 10, 0 10, 0 0)),MULTIPOINT(0 2, 0 5))'::geometry);
+-- equals - element on border and inside polygon
+SELECT 'equals212', ST_equals('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry,
+'GEOMETRYCOLLECTION (POLYGON((0 0, 10 0, 10 10, 0 10, 0 0)),LINESTRING(0 2, 0 5, 5 5))'::geometry);
+SELECT 'equals213', ST_equals('POLYGON((0 0, 0 10, 10 10, 10 0, 0 0))'::geometry,
+'GEOMETRYCOLLECTION (POLYGON((0 0, 10 0, 10 10, 0 10, 0 0)),MULTIPOINT(0 2, 5 5))'::geometry);
+
+-- #4299
+SELECT '#4299', ST_Disjoint(ST_GeneratePoints(g, 1000), ST_GeneratePoints(g, 1000))
+FROM (SELECT 'POLYGON((0 0,1 0,1 1,0 1,0 0))'::geometry AS g) AS f;
+
+-- #4304
+SELECT '#4304', ST_Equals(ST_GeneratePoints(g, 1000, 12345), ST_GeneratePoints(g, 1000, 12345)),
+ST_Disjoint(ST_GeneratePoints(g, 1000, 12345), ST_GeneratePoints(g, 1000, 54321)),
+ST_Disjoint(ST_GeneratePoints(g, 1000, 12345), ST_GeneratePoints(g, 1000)),
+ST_Distance(ST_GeometryN(ST_GeneratePoints(g, 1000, 12345), 1000), 'POINT(0.801167838758 0.345281131175)'::geometry) < 1e-11
+FROM (SELECT 'POLYGON((0 0,1 0,1 1,0 1,0 0))'::geometry AS g) AS f;
+
+-- #4331
+SELECT '#4304a', ST_3DMakeBox(ST_GeomFromText('POINT EMPTY',4326), ST_GeomFromText('POINT EMPTY',4326)) IS NULL;
+SELECT '#4304b', ST_MakeBox2D(ST_GeomFromText('POINT EMPTY',4326), ST_GeomFromText('POINT EMPTY',4326)) IS NULL;
 
 SELECT '#4176', ST_Intersects('POLYGON((0 0, 10 10, 3 5, 0 0))', 'GEOMETRYCOLLECTION(POINT(10 10), LINESTRING(0 0, 3 3))');
+
+with mj as (select 'POINT(0 0)'::geometry geom) select '#4394' from mj a full join mj b on a.geom = b.geom;
+
+-- #4445 Geometry comparisons
+WITH p0 AS (SELECT 'POINT(0 0)'::geometry geom),
+     p1 AS (SELECT 'POINT(1 1)'::geometry geom)
+SELECT '#4445',
+       p0.geom  <    p0.geom,
+       p0.geom  <=   p0.geom,
+       p0.geom  =    p0.geom,
+       p0.geom  >=   p0.geom,
+       p0.geom  >    p0.geom,
+       p0.geom  <    p1.geom,
+       p0.geom  <=   p1.geom,
+       p0.geom  =    p1.geom,
+       p0.geom  >=   p1.geom,
+       p0.geom  >    p1.geom,
+       p1.geom  <    p0.geom,
+       p1.geom  <=   p0.geom,
+       p1.geom  =    p0.geom,
+       p1.geom  >=   p0.geom,
+       p1.geom  >    p0.geom
+FROM p0, p1;
+
+
+
+WITH geom AS (
+	SELECT 'TRIANGLE((0 0, 1 1, 0 1, 0 0))'::geometry geom
+	union all
+	SELECT 'TIN(((0 0, 1 1, 0 1, 0 0)))'::geometry geom
+	union all
+	SELECT 'TRIANGLE EMPTY'::geometry geom
+)
+select '#4399', 'ST_AsBinary', ST_AsBinary(geom)::text from geom
+union all
+select '#4399', 'ST_AsEWKB', ST_AsEWKB(geom)::text from geom
+union all
+select '#4399', 'ST_AsEWKT', ST_AsEWKT(geom)::text from geom
+union all
+select '#4399', 'ST_AsGML', ST_AsGML(3,geom)::text from geom
+union all
+select '#4399', 'ST_AsHEXEWKB', ST_AsHEXEWKB(geom)::text from geom
+union all
+select '#4399', 'ST_AsKML', ST_AsKML(ST_SetSRID(geom, 4326))::text from geom
+union all
+select '#4399', 'ST_AsText', ST_AsText(geom)::text from geom
+union all
+select '#4399', 'ST_AsTWKB', ST_AsTWKB(geom)::text from geom
+union all
+select '#4399', 'ST_AsX3D', ST_AsX3D(geom)::text from geom
+union all
+select '#4399', 'ST_GeoHash', ST_GeoHash(geom)::text from geom
+union all
+select '#4399', 'ST_AsGeoJSON', ST_AsGeoJSON(geom)::text from geom;

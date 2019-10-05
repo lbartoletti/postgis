@@ -41,11 +41,14 @@
 	PG_FUNCTION_INFO_V1(funcname); \
 	Datum funcname(PG_FUNCTION_ARGS) \
 	{ \
-		ereport(ERROR, \
-			(errcode(ERRCODE_FEATURE_NOT_SUPPORTED), \
-			 errmsg("function %s is out of date since PostGIS %s. Run: ALTER EXTENSION postgis UPDATE;", \
-				__func__, \
-				version))); \
+		ereport(ERROR, (\
+			errcode(ERRCODE_FEATURE_NOT_SUPPORTED), \
+			errmsg("A stored procedure tried to use deprecated C function '%s'", \
+			       __func__), \
+			errdetail("Library function '%s' was deprecated in PostGIS %s", \
+			          __func__, version), \
+			errhint("Consider running: SELECT postgis_extensions_upgrade()") \
+		)); \
 		PG_RETURN_POINTER(NULL); \
 	}
 
@@ -62,3 +65,15 @@ POSTGIS_DEPRECATE("3.0.0", intersection);
 POSTGIS_DEPRECATE("3.0.0", geos_intersection);
 POSTGIS_DEPRECATE("3.0.0", difference);
 POSTGIS_DEPRECATE("3.0.0", geos_difference);
+POSTGIS_DEPRECATE("3.0.0", geos_intersects);
+POSTGIS_DEPRECATE("3.0.0", sfcgal_intersects);
+POSTGIS_DEPRECATE("3.0.0", intersects3d);
+POSTGIS_DEPRECATE("3.0.0", intersects3d_dwithin);
+POSTGIS_DEPRECATE("3.0.0", sfcgal_intersects3d);
+POSTGIS_DEPRECATE("3.0.0", distance3d);
+POSTGIS_DEPRECATE("3.0.0", sfcgal_distance3d);
+POSTGIS_DEPRECATE("3.0.0", LWGEOM_mindistance3d);
+POSTGIS_DEPRECATE("3.0.0", intersects);
+POSTGIS_DEPRECATE("3.0.0", pgis_geometry_accum_finalfn);
+POSTGIS_DEPRECATE("3.0.0", postgis_autocache_bbox);
+POSTGIS_DEPRECATE("2.0.0", postgis_uses_stats);

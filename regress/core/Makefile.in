@@ -22,7 +22,7 @@ POSTGIS_PROJ_VERSION=@POSTGIS_PROJ_VERSION@
 POSTGIS_MAJOR_VERSION=@POSTGIS_MAJOR_VERSION@
 POSTGIS_MINOR_VERSION=@POSTGIS_MINOR_VERSION@
 HAVE_JSON=@HAVE_JSON@
-HAVE_PROTOBUF=@HAVE_PROTOBUF@
+PROTOC_VERSION=@PROTOC_VERSION@
 HAVE_SPGIST=@HAVE_SPGIST@
 INTERRUPTTESTS=@INTERRUPTTESTS@
 
@@ -61,12 +61,16 @@ TESTS = \
 	../loader/NotReallyMultiPoint \
 	../loader/MultiToSinglePoint \
 	../loader/ReprojectPts \
+	../loader/ReprojectPtsD \
 	../loader/ReprojectPtsGeog \
+	../loader/ReprojectPtsGeogD \
 	../loader/Latin1 \
 	../loader/Latin1-implicit \
 	../loader/mfile \
 	../dumper/literalsrid \
 	../dumper/realtable \
+	../dumper/nullsintable \
+	../dumper/null3d \
 	affine \
 	bestsrid \
 	binary \
@@ -75,7 +79,6 @@ TESTS = \
 	filterm \
 	cluster \
 	concave_hull\
-	concave_hull_hard\
 	ctors \
 	curvetoline \
 	dump \
@@ -91,7 +94,6 @@ TESTS = \
 	in_kml \
 	in_encodedpolyline \
 	iscollection \
-	knn_recheck \
 	legacy \
 	long_xact \
 	lwgeom_regress \
@@ -163,14 +165,27 @@ TESTS = \
 	regress_brin_index_3d \
 	regress_brin_index_geography \
 	minimum_clearance \
-	oriented_envelope
+	oriented_envelope \
+	point_coordinates
 
-ifeq ($(shell expr $(POSTGIS_GEOS_VERSION) ">=" 37),1)
+# Slow slow tests
+TESTS_SLOW = \
+	concave_hull_hard \
+	knn_recheck
+
+ifeq ($(shell expr "$(POSTGIS_GEOS_VERSION)" ">=" 37),1)
 	# GEOS-3.7 adds:
 	# ST_FrechetDistance
 	TESTS += \
 		frechet
 endif
+
+ifeq ($(shell expr "$(POSTGIS_GEOS_VERSION)" ">=" 38),1)
+	# GEOS-3.8 adds stable pointonsurface implementation
+	TESTS += \
+		geos38
+endif
+
 
 ifeq ($(INTERRUPTTESTS),yes)
 	# Allow CI servers to configure --with-interrupt-tests
@@ -194,13 +209,16 @@ ifeq ($(HAVE_SPGIST),yes)
 	regress_spgist_index_nd
 endif
 
-ifeq ($(HAVE_PROTOBUF),yes)
+ifeq (@HAVE_PROTOBUF@,yes)
 	# protobuf-c adds:
 	# ST_AsMVT, ST_AsGeobuf
 	TESTS += \
 		mvt \
-		geobuf \
 		mvt_jsonb
+ifeq (@HAVE_GEOBUF@,yes)
+	TESTS += \
+		geobuf
+endif
 endif
 
 all install uninstall:
@@ -214,5 +232,9 @@ test check:
 	if echo "$(RUNTESTFLAGS)" | grep -vq -- --upgrade; then \
 		$(PERL) ../run_test.pl --upgrade $(RUNTESTFLAGS) $(TESTS); \
 	fi
+
+check-long:
+	$(PERL) ../run_test.pl $(RUNTESTFLAGS) $(TESTS) $(TESTS_SLOW)
+
 
 clean:

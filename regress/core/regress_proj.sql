@@ -56,5 +56,12 @@ SELECT 12, ST_AsEWKT(ST_Transform(
            ST_GeomFromEWKT('SRID=100002;POINT(16 48)'),
            'invalid projection'));
 
-DELETE FROM spatial_ref_sys WHERE srid >= 100000;
+DELETE FROM spatial_ref_sys WHERE srid in (100001, 100002);
 
+--- Overflow proj cache
+SELECT 13, count(*) FROM
+(
+    SELECT ST_Transform('SRID=4326; POINT(0 0)'::geometry, srid) AS g
+    FROM
+        ( SELECT srid FROM spatial_ref_sys LIMIT 150 ) _a
+) _b WHERE g IS NOT NULL;

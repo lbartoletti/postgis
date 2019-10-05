@@ -778,6 +778,20 @@ test_lwtriangle_clip(void)
 	lwfree(ewkt);
 	lwcollection_free(c);
 	lwgeom_free(g);
+
+	g = lwgeom_from_wkt(
+	    "TIN Z (((0 0 2,0 1 2,-1 2 2,0 0 2)),((0 1 2,0 0 2,0 1 4,0 1 2)),((-1 2 2,0 1 2,1 1 2,-1 2 2)),((0 0 2,-1 2 2,-1 -1 2,0 0 2)),((0 1 4,0 0 2,0 0 4,0 1 4)),((0 1 2,0 1 4,1 1 4,0 1 2)),((1 1 2,0 1 2,1 1 4,1 1 2)),((-1 2 2,1 1 2,2 2 2,-1 2 2)),((-1 -1 2,-1 2 2,-1 -1 -1,-1 -1 2)),((0 0 2,-1 -1 2,1 0 2,0 0 2)),((0 0 4,0 0 2,1 0 2,0 0 4)),((0 1 4,0 0 4,1 0 4,0 1 4)),((1 1 4,0 1 4,1 0 4,1 1 4)),((1 1 2,1 1 4,1 0 4,1 1 2)),((2 2 2,1 1 2,2 -1 2,2 2 2)),((-1 2 2,2 2 2,-1 2 -1,-1 2 2)),((-1 -1 -1,-1 2 2,-1 2 -1,-1 -1 -1)),((-1 -1 2,-1 -1 -1,2 -1 -1,-1 -1 2)),((1 0 2,-1 -1 2,2 -1 2,1 0 2)),((0 0 4,1 0 2,1 0 4,0 0 4)),((1 1 2,1 0 4,1 0 2,1 1 2)),((2 -1 2,1 1 2,1 0 2,2 -1 2)),((2 2 2,2 -1 2,2 2 -1,2 2 2)),((-1 2 -1,2 2 2,2 2 -1,-1 2 -1)),((-1 -1 -1,-1 2 -1,2 2 -1,-1 -1 -1)),((2 -1 -1,-1 -1 -1,2 2 -1,2 -1 -1)),((-1 -1 2,2 -1 -1,2 -1 2,-1 -1 2)),((2 2 -1,2 -1 2,2 -1 -1,2 2 -1)))",
+	    LW_PARSER_CHECK_NONE);
+	c = lwgeom_clip_to_ordinate_range(g, 'Z', 0.0, DBL_MAX, 0);
+
+	ewkt = lwgeom_to_ewkt((LWGEOM *)c);
+	// printf("c = %s\n", ewkt);
+	ASSERT_STRING_EQUAL(
+	    ewkt,
+	    "TIN(((0 0 2,0 1 2,-1 2 2,0 0 2)),((0 1 2,0 0 2,0 1 4,0 1 2)),((-1 2 2,0 1 2,1 1 2,-1 2 2)),((0 0 2,-1 2 2,-1 -1 2,0 0 2)),((0 1 4,0 0 2,0 0 4,0 1 4)),((0 1 2,0 1 4,1 1 4,0 1 2)),((1 1 2,0 1 2,1 1 4,1 1 2)),((-1 2 2,1 1 2,2 2 2,-1 2 2)),((-1 -1 2,-1 2 2,-1 0 0,-1 -1 2)),((-1 -1 2,-1 0 0,-1 -1 0,-1 -1 2)),((0 0 2,-1 -1 2,1 0 2,0 0 2)),((0 0 4,0 0 2,1 0 2,0 0 4)),((0 1 4,0 0 4,1 0 4,0 1 4)),((1 1 4,0 1 4,1 0 4,1 1 4)),((1 1 2,1 1 4,1 0 4,1 1 2)),((2 2 2,1 1 2,2 -1 2,2 2 2)),((-1 2 2,2 2 2,0 2 0,-1 2 2)),((-1 2 2,0 2 0,-1 2 0,-1 2 2)),((-1 0 0,-1 2 2,-1 2 0,-1 0 0)),((-1 -1 2,-1 -1 0,1 -1 0,-1 -1 2)),((1 0 2,-1 -1 2,2 -1 2,1 0 2)),((0 0 4,1 0 2,1 0 4,0 0 4)),((1 1 2,1 0 4,1 0 2,1 1 2)),((2 -1 2,1 1 2,1 0 2,2 -1 2)),((2 2 2,2 -1 2,2 1 0,2 2 2)),((2 2 2,2 1 0,2 2 0,2 2 2)),((0 2 0,2 2 2,2 2 0,0 2 0)),((-1 -1 2,1 -1 0,2 -1 0,-1 -1 2)),((-1 -1 2,2 -1 0,2 -1 2,-1 -1 2)),((2 1 0,2 -1 2,2 -1 0,2 1 0)))");
+	lwfree(ewkt);
+	lwcollection_free(c);
+	lwgeom_free(g);
 }
 
 static void test_lwmline_clip(void)
@@ -1124,27 +1138,48 @@ static void test_geohash_point_as_int(void)
 	CU_ASSERT_EQUAL(gh, rs);
 }
 
+static void
+test_geohash_bbox(void)
+{
+	double lat[2], lon[2];
+
+	/* SELECT ST_GeoHash(ST_SetSRID(ST_MakePoint(-126,48),4326)) */
+	decode_geohash_bbox("c0w3hf1s70w3hf1s70w3", lat, lon, 100);
+	CU_ASSERT_DOUBLE_EQUAL(lat[0], 48, 1e-11);
+	CU_ASSERT_DOUBLE_EQUAL(lat[1], 48, 1e-11);
+	CU_ASSERT_DOUBLE_EQUAL(lon[0], -126, 1e-11);
+	CU_ASSERT_DOUBLE_EQUAL(lon[1], -126, 1e-11);
+
+	cu_error_msg_reset();
+	decode_geohash_bbox("@@@@@@", lat, lon, 100);
+	ASSERT_STRING_EQUAL(cu_error_msg, "decode_geohash_bbox: Invalid character '@'");
+}
+
 static void test_lwgeom_remove_repeated_points(void)
 {
 	LWGEOM *g;
 	char *ewkt;
+	int modified = LW_FALSE;
 
 	g = lwgeom_from_wkt("MULTIPOINT(0 0, 10 0, 10 10, 10 10, 0 10, 0 10, 0 10, 0 0, 0 0, 0 0, 5 5, 0 0, 5 5)", LW_PARSER_CHECK_NONE);
-	lwgeom_remove_repeated_points_in_place(g, 1);
+	modified = lwgeom_remove_repeated_points_in_place(g, 1);
+	ASSERT_INT_EQUAL(modified, LW_TRUE);
 	ewkt = lwgeom_to_ewkt(g);
 	ASSERT_STRING_EQUAL(ewkt, "MULTIPOINT(0 0,10 0,10 10,0 10,5 5)");
 	lwgeom_free(g);
 	lwfree(ewkt);
 
 	g = lwgeom_from_wkt("LINESTRING(1612830.15445 4841287.12672,1612830.15824 4841287.12674,1612829.98813 4841274.56198)", LW_PARSER_CHECK_NONE);
-	lwgeom_remove_repeated_points_in_place(g, 0.01);
+	modified = lwgeom_remove_repeated_points_in_place(g, 0.01);
+	ASSERT_INT_EQUAL(modified, LW_TRUE);
 	ewkt = lwgeom_to_ewkt(g);
 	ASSERT_STRING_EQUAL(ewkt, "LINESTRING(1612830.15445 4841287.12672,1612829.98813 4841274.56198)");
 	lwgeom_free(g);
 	lwfree(ewkt);
 
 	g = lwgeom_from_wkt("MULTIPOINT(0 0,10 0,10 10,10 10,0 10,0 10,0 10,0 0,0 0,0 0,5 5,5 5,5 8,8 8,8 8,8 8,8 5,8 5,5 5,5 5,5 5,5 5,5 5,50 50,50 50,50 50,50 60,50 60,50 60,60 60,60 50,60 50,50 50,55 55,55 58,58 58,58 55,58 55,55 55)", LW_PARSER_CHECK_NONE);
-	lwgeom_remove_repeated_points_in_place(g, 1);
+	modified = lwgeom_remove_repeated_points_in_place(g, 1);
+	ASSERT_INT_EQUAL(modified, LW_TRUE);
 	ewkt = lwgeom_to_ewkt(g);
 	ASSERT_STRING_EQUAL(
 	    ewkt, "MULTIPOINT(0 0,10 0,10 10,0 10,5 5,5 8,8 8,8 5,50 50,50 60,60 60,60 50,55 55,55 58,58 58,58 55)");
@@ -1152,9 +1187,62 @@ static void test_lwgeom_remove_repeated_points(void)
 	lwfree(ewkt);
 
 	g = lwgeom_from_wkt("POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))", LW_PARSER_CHECK_NONE);
-	lwgeom_remove_repeated_points_in_place(g, 10000);
+	modified = lwgeom_remove_repeated_points_in_place(g, 10000);
+	ASSERT_INT_EQUAL(modified, LW_TRUE);
 	ewkt = lwgeom_to_ewkt(g);
 	ASSERT_STRING_EQUAL(ewkt, "POLYGON((0 0,1 1,1 0,0 0))");
+	lwgeom_free(g);
+	lwfree(ewkt);
+
+	// Test the return value (modified or not)
+	g = lwgeom_from_wkt("POINT(0 0)", LW_PARSER_CHECK_NONE);
+	modified = lwgeom_remove_repeated_points_in_place(g, 10000);
+	ASSERT_INT_EQUAL(modified, LW_FALSE);
+	lwgeom_free(g);
+
+	g = lwgeom_from_wkt("TRIANGLE((0 0, 5 0, 3 3, 0 0))", LW_PARSER_CHECK_NONE);
+	modified = lwgeom_remove_repeated_points_in_place(g, 10000);
+	ASSERT_INT_EQUAL(modified, LW_FALSE);
+	lwgeom_free(g);
+
+	g = lwgeom_from_wkt("POLYGON((0 0,0 1,1 1,1 0,0 0))", LW_PARSER_CHECK_NONE);
+	modified = lwgeom_remove_repeated_points_in_place(g, 0.1);
+	ASSERT_INT_EQUAL(modified, LW_FALSE);
+	ewkt = lwgeom_to_ewkt(g);
+	ASSERT_STRING_EQUAL(ewkt, "POLYGON((0 0,0 1,1 1,1 0,0 0))");
+	lwgeom_free(g);
+	lwfree(ewkt);
+
+	g = lwgeom_from_wkt("POLYGON((0 0,0 1,1 1,1 0,0 0), (0.4 0.4, 0.4 0.4, 0.4 0.5, 0.5 0.5, 0.5 0.4, 0.4 0.4))",
+			    LW_PARSER_CHECK_NONE);
+	modified = lwgeom_remove_repeated_points_in_place(g, 0.1);
+	ASSERT_INT_EQUAL(modified, LW_TRUE);
+	ewkt = lwgeom_to_ewkt(g);
+	ASSERT_STRING_EQUAL(ewkt, "POLYGON((0 0,0 1,1 1,1 0,0 0),(0.4 0.4,0.5 0.5,0.5 0.4,0.4 0.4))");
+	lwgeom_free(g);
+	lwfree(ewkt);
+
+	g = lwgeom_from_wkt("GEOMETRYCOLLECTION(POINT(2 0),POLYGON((0 0,1 0,1 1,0 1,0 0)))", LW_PARSER_CHECK_NONE);
+	modified = lwgeom_remove_repeated_points_in_place(g, 0.1);
+	ASSERT_INT_EQUAL(modified, LW_FALSE);
+	ewkt = lwgeom_to_ewkt(g);
+	ASSERT_STRING_EQUAL(ewkt, "GEOMETRYCOLLECTION(POINT(2 0),POLYGON((0 0,1 0,1 1,0 1,0 0)))");
+	lwgeom_free(g);
+	lwfree(ewkt);
+
+	g = lwgeom_from_wkt("GEOMETRYCOLLECTION(POINT(2 0),POLYGON((0 0, 0 1, 1 1, 1 0, 0 0)))", LW_PARSER_CHECK_NONE);
+	modified = lwgeom_remove_repeated_points_in_place(g, 10000);
+	ASSERT_INT_EQUAL(modified, LW_TRUE);
+	ewkt = lwgeom_to_ewkt(g);
+	ASSERT_STRING_EQUAL(ewkt, "GEOMETRYCOLLECTION(POINT(2 0),POLYGON((0 0,1 1,1 0,0 0)))");
+	lwgeom_free(g);
+	lwfree(ewkt);
+
+	g = lwgeom_from_wkt("GEOMETRYCOLLECTION(POLYGON((0 0, 0 1, 1 1, 1 0, 0 0)),POINT(2 0))", LW_PARSER_CHECK_NONE);
+	modified = lwgeom_remove_repeated_points_in_place(g, 10000);
+	ASSERT_INT_EQUAL(modified, LW_TRUE);
+	ewkt = lwgeom_to_ewkt(g);
+	ASSERT_STRING_EQUAL(ewkt, "GEOMETRYCOLLECTION(POLYGON((0 0,1 1,1 0,0 0)),POINT(2 0))");
 	lwgeom_free(g);
 	lwfree(ewkt);
 }
@@ -1439,22 +1527,79 @@ static void test_point_density(void)
 {
 	LWGEOM *geom;
 	LWMPOINT *mpt;
+	LWMPOINT *mpt2;
+	LWPOINT *pt;
+	LWPOINT *pt2;
+	int eq, i;
 	// char *ewkt;
 
 	/* POLYGON */
-	geom = lwgeom_from_wkt("POLYGON((1 0,0 1,1 2,2 1,1 0))", LW_PARSER_CHECK_NONE);
-	mpt = lwgeom_to_points(geom, 100);
+	geom = lwgeom_from_wkt("POLYGON((0 0,1 0,1 1,0 1,0 0))", LW_PARSER_CHECK_NONE);
+	mpt = lwgeom_to_points(geom, 100, 0);  /* Set a zero seed to base it on Unix time and process ID */
 	CU_ASSERT_EQUAL(mpt->ngeoms,100);
-	// ewkt = lwgeom_to_ewkt((LWGEOM*)mpt);
+
+	/* Run a second time with a zero seed to get a different multipoint sequence */
+	mpt2 = lwgeom_to_points(geom, 100, 0);
+	eq = 0;
+	for (i = 0; i < 100; i++)
+	{
+		pt = (LWPOINT*)mpt->geoms[i];
+		pt2 = (LWPOINT*)mpt2->geoms[i];
+		if (lwpoint_get_x(pt) == lwpoint_get_x(pt2) && lwpoint_get_y(pt) == lwpoint_get_y(pt2))
+			eq++;
+	}
+	CU_ASSERT_EQUAL(eq, 0);
+	lwmpoint_free(mpt);
+	lwmpoint_free(mpt2);
+	pt = NULL;
+	pt2 = NULL;
+
+	/* Set seed to get a deterministic sequence */
+	mpt = lwgeom_to_points(geom, 1000, 12345);
+
+	/* Check to find a different multipoint sequence with different seed */
+	mpt2 = lwgeom_to_points(geom, 1000, 54321);
+	eq = 0;
+	for (i = 0; i < 1000; i++)
+	{
+		pt = (LWPOINT*)mpt->geoms[i];
+		pt2 = (LWPOINT*)mpt2->geoms[i];
+		if (lwpoint_get_x(pt) == lwpoint_get_x(pt2) && lwpoint_get_y(pt) == lwpoint_get_y(pt2))
+			eq++;
+	}
+	CU_ASSERT_EQUAL(eq, 0);
+	lwmpoint_free(mpt2);
+	pt = NULL;
+	pt2 = NULL;
+
+	/* Check to find an identical multipoint sequence with same seed */
+	mpt2 = lwgeom_to_points(geom, 1000, 12345);
+	eq = 0;
+	for (i = 0; i < 1000; i++)
+	{
+		pt = (LWPOINT*)mpt->geoms[i];
+		pt2 = (LWPOINT*)mpt2->geoms[i];
+		if (lwpoint_get_x(pt) == lwpoint_get_x(pt2) && lwpoint_get_y(pt) == lwpoint_get_y(pt2))
+			eq++;
+	}
+	CU_ASSERT_EQUAL(eq, 1000);
+	lwmpoint_free(mpt2);
+	pt = NULL;
+	pt2 = NULL;
+
+
+	/* Check if the 1000th point is the expected value.
+	 * Note that if the RNG is not portable, this test may fail. */
+	pt = (LWPOINT*)mpt->geoms[999];
+	// ewkt = lwgeom_to_ewkt((LWGEOM*)pt);
 	// printf("%s\n", ewkt);
 	// lwfree(ewkt);
+	CU_ASSERT_DOUBLE_EQUAL(lwpoint_get_x(pt), 0.801167838758, 1e-11);
+	CU_ASSERT_DOUBLE_EQUAL(lwpoint_get_y(pt), 0.345281131175, 1e-11);
 	lwmpoint_free(mpt);
+	pt = NULL;
 
-	mpt = lwgeom_to_points(geom, 1);
-	CU_ASSERT_EQUAL(mpt->ngeoms,1);
-	lwmpoint_free(mpt);
-
-	mpt = lwgeom_to_points(geom, 0);
+	mpt = lwgeom_to_points(geom, 0, 0);
 	CU_ASSERT_EQUAL(mpt, NULL);
 	lwmpoint_free(mpt);
 
@@ -1463,11 +1608,11 @@ static void test_point_density(void)
 	/* MULTIPOLYGON */
 	geom = lwgeom_from_wkt("MULTIPOLYGON(((10 0,0 10,10 20,20 10,10 0)),((0 0,5 0,5 5,0 5,0 0)))", LW_PARSER_CHECK_NONE);
 
-	mpt = lwgeom_to_points(geom, 1000);
+	mpt = lwgeom_to_points(geom, 1000, 0);
 	CU_ASSERT_EQUAL(mpt->ngeoms,1000);
 	lwmpoint_free(mpt);
 
-	mpt = lwgeom_to_points(geom, 1);
+	mpt = lwgeom_to_points(geom, 1, 0);
 	CU_ASSERT_EQUAL(mpt->ngeoms,1);
 	lwmpoint_free(mpt);
 
@@ -1478,7 +1623,7 @@ static void test_lwpoly_construct_circle(void)
 {
 	LWPOLY* p;
 	const GBOX* g;
-	const int srid = 4326;
+	const int32_t srid = 4326;
 	const uint32_t segments_per_quad = 17;
 	const int x = 10;
 	const int y = 20;
@@ -1627,6 +1772,7 @@ void algorithms_suite_setup(void)
 	PG_ADD_TEST(suite,test_geohash_precision);
 	PG_ADD_TEST(suite,test_geohash);
 	PG_ADD_TEST(suite,test_geohash_point_as_int);
+	PG_ADD_TEST(suite, test_geohash_bbox);
 	PG_ADD_TEST(suite,test_isclosed);
 	PG_ADD_TEST(suite,test_lwgeom_simplify);
 	PG_ADD_TEST(suite,test_lw_arc_center);

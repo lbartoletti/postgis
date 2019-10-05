@@ -38,12 +38,13 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+#include <float.h>
+#include <math.h>
 
 #if HAVE_IEEEFP_H
 #include <ieeefp.h>
 #endif
-
-#include <float.h>
 
 #include "liblwgeom.h"
 
@@ -116,10 +117,18 @@
 /**
 * Macro for reading the size from the GSERIALIZED size attribute.
 * Cribbed from PgSQL, top 30 bits are size. Use VARSIZE() when working
-* internally with PgSQL.
+* internally with PgSQL. See SET_VARSIZE_4B / VARSIZE_4B in
+* PGSRC/src/include/postgres.h for details.
 */
+#ifdef WORDS_BIGENDIAN
+#define SIZE_GET(varsize) ((varsize) & 0x3FFFFFFF)
+#define SIZE_SET(varsize, len) ((varsize) = ((len) & 0x3FFFFFFF))
+#define IS_BIG_ENDIAN 1
+#else
 #define SIZE_GET(varsize) (((varsize) >> 2) & 0x3FFFFFFF)
-#define SIZE_SET(varsize, size) (((varsize) & 0x00000003)|(((size) & 0x3FFFFFFF) << 2 ))
+#define SIZE_SET(varsize, len) ((varsize) = (((uint32_t)(len)) << 2))
+#define IS_BIG_ENDIAN 0
+#endif
 
 /**
 * Macro that returns:
@@ -158,7 +167,6 @@
 /* Machine endianness */
 #define XDR 0 /* big endian */
 #define NDR 1 /* little endian */
-extern char getMachineEndian(void);
 
 
 /*
@@ -202,7 +210,7 @@ uint32_t lwcollection_count_vertices(LWCOLLECTION *col);
 /**
  * @param minpts minimum number of points to retain, if possible.
  */
-void ptarray_simplify_in_place(POINTARRAY *pa, double epsilon, uint32_t minpts);
+void ptarray_simplify_in_place(POINTARRAY *pa, double tolerance, uint32_t minpts);
 
 /*
 * The possible ways a pair of segments can interact. Returned by lw_segment_intersects
@@ -267,6 +275,13 @@ int gserialized_read_gbox_p(const GSERIALIZED *g, GBOX *gbox);
  */
 int gserialized_peek_gbox_p(const GSERIALIZED *g, GBOX *gbox);
 
+/**
+* Calculate required memory segment to contain a serialized form of the LWGEOM.
+* Primarily used internally by the serialization code. Exposed to allow the cunit
+* tests to exercise it.
+*/
+size_t gserialized_from_lwgeom_size(const LWGEOM *geom);
+
 /*
 * Length calculations
 */
@@ -286,7 +301,6 @@ double lwtriangle_perimeter_2d(const LWTRIANGLE *triangle);
 /*
 * Segmentization
 */
-LWLINE *lwcompound_stroke(const LWCOMPOUND *icompound, uint32_t perQuad);
 LWPOLY *lwcurvepoly_stroke(const LWCURVEPOLY *curvepoly, uint32_t perQuad);
 
 /*
@@ -349,11 +363,6 @@ char lwcollection_same(const LWCOLLECTION *p1, const LWCOLLECTION *p2);
 char lwcircstring_same(const LWCIRCSTRING *p1, const LWCIRCSTRING *p2);
 
 /*
-* Transform
-*/
-int point4d_transform(POINT4D *pt, projPJ srcpj, projPJ dstpj);
-
-/*
 * Shift
 */
 void ptarray_longitude_shift(POINTARRAY *pa);
@@ -402,25 +411,6 @@ int lwtin_is_closed(const LWTIN *tin);
 /**
 * Snap to grid
 */
-
-/**
-* Snap-to-grid Support
-*/
-typedef struct gridspec_t
-{
-	double ipx;
-	double ipy;
-	double ipz;
-	double ipm;
-	double xsize;
-	double ysize;
-	double zsize;
-	double msize;
-}
-gridspec;
-
-LWGEOM* lwgeom_grid(const LWGEOM *lwgeom, const gridspec *grid);
-void lwgeom_grid_in_place(LWGEOM *lwgeom, const gridspec *grid);
 void ptarray_grid_in_place(POINTARRAY *pa, const gridspec *grid);
 
 /*
@@ -488,5 +478,6 @@ int ptarray_npoints_in_rect(const POINTARRAY *pa, const GBOX *gbox);
 int gbox_contains_point2d(const GBOX *g, const POINT2D *p);
 int lwpoly_contains_point(const LWPOLY *poly, const POINT2D *pt);
 POINT4D* lwmpoint_extract_points_4d(const LWMPOINT* g, uint32_t* npoints, int* input_empty);
+char* lwstrdup(const char* a);
 
 #endif /* _LIBLWGEOM_INTERNAL_H */

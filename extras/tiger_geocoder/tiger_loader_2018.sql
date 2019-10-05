@@ -262,7 +262,7 @@ VALUES(10, 'tract', 'tract', true, false, true,false, 'c',
 INSERT INTO loader_lookuptables(process_order, lookup_name, table_name, load, level_county, level_state, single_geom_mode, insert_mode, pre_load_process, post_load_process, columns_exclude )
 VALUES(11, 'tabblock', 'tabblock10', false, false, true,false, 'c',
 '${psql} -c "CREATE TABLE ${data_schema}.${state_abbrev}_${lookup_name}(CONSTRAINT pk_${state_abbrev}_${lookup_name} PRIMARY KEY (tabblock_id)) INHERITS(tiger.${lookup_name});" ',
-'${psql} -c "ALTER TABLE ${staging_schema}.${state_abbrev}_${lookup_name} RENAME geoid10 TO tabblock_id;  SELECT loader_load_staged_data(lower(''${state_abbrev}_${table_name}''), lower(''${state_abbrev}_${lookup_name}'')); "
+'${psql} -c "ALTER TABLE ${staging_schema}.${state_abbrev}_${table_name} RENAME geoid10 TO tabblock_id;  SELECT loader_load_staged_data(lower(''${state_abbrev}_${table_name}''), lower(''${state_abbrev}_${lookup_name}'')); "
 ${psql} -c "ALTER TABLE ${data_schema}.${state_abbrev}_${lookup_name} ADD CONSTRAINT chk_statefp CHECK (statefp = ''${state_fips}'');"
 ${psql} -c "CREATE INDEX ${data_schema}_${state_abbrev}_${lookup_name}_the_geom_gist ON ${data_schema}.${state_abbrev}_${lookup_name} USING gist(the_geom);"
 ${psql} -c "vacuum analyze ${data_schema}.${state_abbrev}_${lookup_name};"', '{gid, uatyp10, uatype, suffix1ce}'::text[]);
@@ -411,8 +411,8 @@ SELECT
 	, ARRAY['psql', 'data_schema','staging_schema', 'staging_fold', 'website_root'],
 	ARRAY[platform.psql,  variables.data_schema, variables.staging_schema, variables.staging_fold, variables.website_root])
 			AS shell_code
-FROM loader_variables As variables
-	 CROSS JOIN loader_platform As platform
+FROM tiger.loader_variables As variables
+	 CROSS JOIN tiger.loader_platform As platform
 WHERE platform.os = $1 -- generate script for selected platform
 ;
 $BODY$
@@ -440,7 +440,7 @@ SELECT
 	|| '_' || lu.table_name || '.dbf tiger_staging.' || lower(s.state_abbrev) || '_' || lu.table_name || ' | '::text || platform.psql
 		|| COALESCE(E'\n' ||
 			lu.post_load_process , '') , ARRAY['loader','table_name', 'lookup_name'], ARRAY[platform.loader, lu.table_name, lu.lookup_name ])
-				FROM loader_lookuptables AS lu
+				FROM tiger.loader_lookuptables AS lu
 				WHERE level_state = true AND load = true
 				ORDER BY process_order, lookup_name), E'\n') ::text
 	-- County Level files
@@ -455,7 +455,7 @@ WHERE c.statefp = s.state_fips), ' ')
 ' || replace(platform.unzip_command, '*.zip', 'tl_*_' || s.state_fips || '*_' || table_name || '*.zip ') || '
 ' || loader_macro_replace(COALESCE(lu.pre_load_process || E'\n', '') || COALESCE(county_process_command || E'\n','')
 				|| COALESCE(E'\n' ||lu.post_load_process , '') , ARRAY['loader','table_name','lookup_name'], ARRAY[platform.loader  || ' -D ' || CASE WHEN lu.single_geom_mode THEN ' -S' ELSE ' ' END::text, lu.table_name, lu.lookup_name ])
-				FROM loader_lookuptables AS lu
+				FROM tiger.loader_lookuptables AS lu
 				WHERE level_county = true AND load = true
 				ORDER BY process_order, lookup_name), E'\n') ::text
 	, ARRAY['psql', 'data_schema','staging_schema', 'staging_fold', 'state_fold', 'website_root', 'state_abbrev','state_fips'],
@@ -465,7 +465,7 @@ FROM loader_variables As variables
 		CROSS JOIN (SELECT name As state, abbrev As state_abbrev, lpad(st_code::text,2,'0') As state_fips,
 			 lpad(st_code::text,2,'0') || '_'
 	|| replace(name, ' ', '_') As state_fold
-FROM state_lookup) As s CROSS JOIN loader_platform As platform
+FROM tiger.state_lookup) As s CROSS JOIN tiger.loader_platform As platform
 WHERE $1 @> ARRAY[state_abbrev::text]      -- If state is contained in list of states input generate script for it
 AND platform.os = $2  -- generate script for selected platform
 ;

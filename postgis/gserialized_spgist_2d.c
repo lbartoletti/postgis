@@ -73,7 +73,6 @@
 #include <postgres.h>
 #include <utils/builtins.h>    /* For float manipulation */
 #include "access/spgist.h"     /* For SP-GiST */
-#include "catalog/namespace.h" /* For TypenameGetTypid */
 #include "catalog/pg_type_d.h" /* For VOIDOID */
 
 #include "../postgis_config.h"
@@ -82,6 +81,7 @@
 #include "lwgeom_pg.h"        /* For debugging macros. */
 #include <gserialized_gist.h> /* For utility functions. */
 #include <lwgeom_pg.h>        /* For debugging macros. */
+#include <math.h>
 
 /*
 ** SP-GiST 2D index function prototypes
@@ -291,7 +291,7 @@ PGDLLEXPORT Datum gserialized_spgist_config_2d(PG_FUNCTION_ARGS)
 {
 	spgConfigOut *cfg = (spgConfigOut *)PG_GETARG_POINTER(1);
 
-	Oid boxoid = TypenameGetTypid("box2df");
+	Oid boxoid = postgis_oid_fcinfo(fcinfo, BOX2DFOID);
 	cfg->prefixType = boxoid;
 	cfg->labelType = VOIDOID; /* We don't need node labels. */
 	cfg->leafType = boxoid;

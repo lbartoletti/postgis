@@ -537,19 +537,23 @@ Datum BOX2D_construct(PG_FUNCTION_ARGS)
 	GBOX *result;
 	LWPOINT *minpoint, *maxpoint;
 	double min, max, tmp;
+	gserialized_error_if_srid_mismatch(pgmin, pgmax, __func__);
 
 	minpoint = (LWPOINT*)lwgeom_from_gserialized(pgmin);
 	maxpoint = (LWPOINT*)lwgeom_from_gserialized(pgmax);
 
 	if ( (minpoint->type != POINTTYPE) || (maxpoint->type != POINTTYPE) )
 	{
-		elog(ERROR, "GBOX_construct: arguments must be points");
+		elog(ERROR, "BOX2D_construct: arguments must be points");
 		PG_RETURN_NULL();
 	}
 
-	error_if_srid_mismatch(minpoint->srid, maxpoint->srid);
+	if (lwpoint_is_empty(minpoint) || lwpoint_is_empty(maxpoint) ){
+		elog(ERROR, "BOX2D_construct: args can not be empty points");
+		PG_RETURN_NULL();
+	}
 
-	result = gbox_new(gflags(0, 0, 0));
+	result = gbox_new(lwflags(0, 0, 0));
 
 	/* Process X min/max */
 	min = lwpoint_get_x(minpoint);

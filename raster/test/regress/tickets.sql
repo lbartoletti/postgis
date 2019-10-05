@@ -15,7 +15,7 @@ SELECT '#2532.2', NULL::geometry @ null::raster;
 /******************************************************************************
  #2911
 ******************************************************************************/
-
+-- added OFFSET 0 to force PostgreSQL 12+ to materialize the cte
 WITH data AS ( SELECT '#2911' l, ST_Metadata(ST_Rescale(
  ST_AddBand(
   ST_MakeEmptyRaster(10, 10, 0, 0, 1, -1, 0, 0, 0),
@@ -23,7 +23,7 @@ WITH data AS ( SELECT '#2911' l, ST_Metadata(ST_Rescale(
  ),
  2.0,
  -2.0
- )) m
+ )) m OFFSET 0
 ) SELECT l, (m).* FROM data;
 
 /******************************************************************************
@@ -123,3 +123,14 @@ SELECT '#4102.1', ST_BandNoDataValue(ST_AddBand(ST_MakeEmptyRaster(2, 2, 0, 0, 1
 SELECT '#4102.2', ST_BandNoDataValue(ST_AddBand(ST_MakeEmptyRaster(2, 2, 0, 0, 1, -1, 0, 0, 0), 1, '32BSI', 0, -10), 1) AS rast;
 
 select '#3457', ST_Area((ST_DumpAsPolygons(ST_Clip(ST_ASRaster(ST_GeomFromText('POLYGON((0 0,100 0,100 100,0 100,0 0))',4326),ST_Addband(ST_MakeEmptyRaster(1,1,0,0,1,-1,0,0,4326),'32BF'::text,0,-1),'32BF'::text,1,-1), ST_GeomFromText('POLYGON((0 0,100 100,100 0,0 0))',4326)))).geom);
+
+SELECT '#4412', exists(select ST_PixelAsPolygons(ST_AddBand(ST_MakeEmptyRaster(2, 2, 0, 0, 1, -1, 0, 0, 0), 1, '64BF', 0, 'NaN'), 1)) AS rast;
+
+/**
+#4308,
+*/
+CREATE TABLE table_4308 (r raster);
+INSERT INTO table_4308(r) values (NULL);
+INSERT INTO table_4308(r) SELECT ST_AddBand(ST_MakeEmptyRaster(10, 10, 1, 1, 2, 2, 0, 0,4326), 1, '8BSI'::text, -129, NULL);;
+SELECT AddRasterConstraints('table_4308', 'r');
+DROP TABLE table_4308;

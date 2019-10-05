@@ -15,10 +15,9 @@ SHELL = @SHELL@
 LIBTOOL = @LIBTOOL@
 
 CUNIT_LDFLAGS=@CUNIT_LDFLAGS@
-CUNIT_CPPFLAGS=@CUNIT_CPPFLAGS@ -I..
-
-CFLAGS=$(CUNIT_CPPFLAGS) @WARNFLAGS@ @CFLAGS@ @GEOS_CPPFLAGS@ @PROJ_CPPFLAGS@ 
-LDFLAGS = @GEOS_LDFLAGS@ -lgeos_c $(CUNIT_LDFLAGS) -lm
+CUNIT_CPPFLAGS=@CUNIT_CPPFLAGS@ -I.. @CPPFLAGS@
+CFLAGS=$(CUNIT_CPPFLAGS) @WARNFLAGS@ @CFLAGS@
+LDFLAGS = @GEOS_LDFLAGS@ $(CUNIT_LDFLAGS) -lm
 
 ifeq ($(CUNIT_WITH_VALGRIND), YES)
 	LIBTOOL_VALGRIND := valgrind $(CUNIT_VALGRIND_FLAGS)
@@ -44,7 +43,8 @@ OBJS=	\
 	cu_filterm.o \
 	cu_node.o \
 	cu_clip_by_rect.o \
-	cu_libgeom.o \
+	cu_gserialized1.o \
+	cu_gserialized2.o \
 	cu_lwstroke.o \
 	cu_split.o \
 	cu_stringbuffer.o \

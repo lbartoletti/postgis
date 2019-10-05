@@ -53,12 +53,16 @@ distclean: clean
 	$(MAKE) -C cunit distclean
 	rm -f Makefile
 
-check: libpgcommon.a
+check: check-unit
+
+check-regress:
+
+check-unit: libpgcommon.a
 	$(MAKE) -C cunit check
 
 # Command to build each of the .o files
 $(SA_OBJS): %.o: %.c
-	$(CC) $(CFLAGS) -c -o $@ $<
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
 
 $(SA_OBJS): ../postgis_config.h
 

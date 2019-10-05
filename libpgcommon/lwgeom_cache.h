@@ -16,7 +16,7 @@
 #include "postgres.h"
 #include "fmgr.h"
 
-#include "liblwgeom_internal.h"
+#include "liblwgeom.h"
 #include "lwgeodetic_tree.h"
 #include "lwgeom_pg.h"
 
@@ -62,31 +62,35 @@ typedef struct {
 * fcinfo->flinfo->fn_extra to avoid collisions.
 */
 
-/* An entry in the PROJ4 SRS cache */
-typedef struct struct_PROJ4SRSCacheItem
+/* An entry in the PROJ SRS cache */
+typedef struct struct_PROJSRSCacheItem
 {
-	int srid;
-	projPJ projection;
+	int32_t srid_from;
+	int32_t srid_to;
+	uint64_t hits;
+	LWPROJ *projection;
+#if POSTGIS_PGSQL_VERSION < 96
 	MemoryContext projection_mcxt;
+#endif
 }
-PROJ4SRSCacheItem;
+PROJSRSCacheItem;
 
 /* PROJ 4 lookup transaction cache methods */
-#define PROJ4_CACHE_ITEMS	8
+#define PROJ_CACHE_ITEMS 128
 
 /*
 * The proj4 cache holds a fixed number of reprojection
 * entries. In normal usage we don't expect it to have
 * many entries, so we always linearly scan the list.
 */
-typedef struct struct_PROJ4PortalCache
+typedef struct struct_PROJPortalCache
 {
 	int type;
-	PROJ4SRSCacheItem PROJ4SRSCache[PROJ4_CACHE_ITEMS];
-	int PROJ4SRSCacheCount;
-	MemoryContext PROJ4SRSCacheContext;
+	PROJSRSCacheItem PROJSRSCache[PROJ_CACHE_ITEMS];
+	uint32_t PROJSRSCacheCount;
+	MemoryContext PROJSRSCacheContext;
 }
-PROJ4PortalCache;
+PROJPortalCache;
 
 /**
 * Generic signature for functions to manage a geometry
@@ -103,7 +107,10 @@ typedef struct
 /*
 * Cache retrieval functions
 */
-PROJ4PortalCache*  GetPROJ4SRSCache(FunctionCallInfoData *fcinfo);
-GeomCache*         GetGeomCache(FunctionCallInfoData *fcinfo, const GeomCacheMethods* cache_methods, const GSERIALIZED* g1, const GSERIALIZED* g2);
+PROJPortalCache *GetPROJSRSCache(FunctionCallInfo fcinfo);
+GeomCache *GetGeomCache(FunctionCallInfo fcinfo,
+			const GeomCacheMethods *cache_methods,
+			const GSERIALIZED *g1,
+			const GSERIALIZED *g2);
 
 #endif /* LWGEOM_CACHE_H_ */

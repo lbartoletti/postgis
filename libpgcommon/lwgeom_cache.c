@@ -52,7 +52,7 @@ typedef struct {
 * info data.
 */
 static MemoryContext
-FIContext(FunctionCallInfoData* fcinfo)
+FIContext(FunctionCallInfo fcinfo)
 {
 	return fcinfo->flinfo->fn_mcxt;
 }
@@ -61,8 +61,8 @@ FIContext(FunctionCallInfoData* fcinfo)
 * Get the generic collection off the statement, allocate a
 * new one if we don't have one already.
 */
-static GenericCacheCollection*
-GetGenericCacheCollection(FunctionCallInfoData* fcinfo)
+static GenericCacheCollection *
+GetGenericCacheCollection(FunctionCallInfo fcinfo)
 {
 	GenericCacheCollection* cache = fcinfo->flinfo->fn_extra;
 
@@ -77,35 +77,29 @@ GetGenericCacheCollection(FunctionCallInfoData* fcinfo)
 
 
 /**
-* Get the Proj4 entry from the generic cache if one exists.
+* Get the Proj entry from the generic cache if one exists.
 * If it doesn't exist, make a new empty one and return it.
 */
-PROJ4PortalCache*
-GetPROJ4SRSCache(FunctionCallInfoData* fcinfo)
+PROJPortalCache *
+GetPROJSRSCache(FunctionCallInfo fcinfo)
 {
 	GenericCacheCollection* generic_cache = GetGenericCacheCollection(fcinfo);
-	PROJ4PortalCache* cache = (PROJ4PortalCache*)(generic_cache->entry[PROJ_CACHE_ENTRY]);
+	PROJPortalCache* cache = (PROJPortalCache*)(generic_cache->entry[PROJ_CACHE_ENTRY]);
 
 	if ( ! cache )
 	{
 		/* Allocate in the upper context */
-		cache = MemoryContextAlloc(FIContext(fcinfo), sizeof(PROJ4PortalCache));
+		cache = MemoryContextAlloc(FIContext(fcinfo), sizeof(PROJPortalCache));
 
 		if (cache)
 		{
-			int i;
-
-			POSTGIS_DEBUGF(3, "Allocating PROJ4Cache for portal with transform() MemoryContext %p", FIContext(fcinfo));
-			/* Put in any required defaults */
-			for (i = 0; i < PROJ4_CACHE_ITEMS; i++)
-			{
-				cache->PROJ4SRSCache[i].srid = SRID_UNKNOWN;
-				cache->PROJ4SRSCache[i].projection = NULL;
-				cache->PROJ4SRSCache[i].projection_mcxt = NULL;
-			}
+			POSTGIS_DEBUGF(3,
+				       "Allocating PROJCache for portal with transform() MemoryContext %p",
+				       FIContext(fcinfo));
+			memset(cache->PROJSRSCache, 0, sizeof(PROJSRSCacheItem) * PROJ_CACHE_ITEMS);
 			cache->type = PROJ_CACHE_ENTRY;
-			cache->PROJ4SRSCacheCount = 0;
-			cache->PROJ4SRSCacheContext = FIContext(fcinfo);
+			cache->PROJSRSCacheCount = 0;
+			cache->PROJSRSCacheContext = FIContext(fcinfo);
 
 			/* Store the pointer in GenericCache */
 			generic_cache->entry[PROJ_CACHE_ENTRY] = (GenericCache*)cache;
@@ -120,8 +114,11 @@ GetPROJ4SRSCache(FunctionCallInfoData* fcinfo)
 * Returns a cache pointer if there is a cache hit and we have an
 * index built and ready to use. Returns NULL otherwise.
 */
-GeomCache*
-GetGeomCache(FunctionCallInfoData* fcinfo, const GeomCacheMethods* cache_methods, const GSERIALIZED* g1, const GSERIALIZED* g2)
+GeomCache *
+GetGeomCache(FunctionCallInfo fcinfo,
+	     const GeomCacheMethods *cache_methods,
+	     const GSERIALIZED *g1,
+	     const GSERIALIZED *g2)
 {
 	GeomCache* cache;
 	int cache_hit = 0;

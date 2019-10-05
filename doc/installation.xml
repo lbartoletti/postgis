@@ -195,6 +195,7 @@ psql -d yourdatabase -f sfcgal_comments.sql
 		  <ulink url="https://trac.osgeo.org/postgis/ticket/4125">https://trac.osgeo.org/postgis/ticket/4125</ulink>.
 		</para>
 	  </listitem>
+
 	</itemizedlist>
 
 	<para>
@@ -240,6 +241,7 @@ psql -d yourdatabase -f sfcgal_comments.sql
 			  To enable ST_AsMVT protobuf-c library (for usage) and the protoc-c compiler (for building) are required.
 				Also, pkg-config is required to verify the correct minimum version of protobuf-c.
 				See <ulink url="https://github.com/protobuf-c/protobuf-c">protobuf-c</ulink>.
+				By default, Postgis will use Wagyu to validate MVT polygons faster which requires a c++11 compiler. It will use CXXFLAGS and the same compiler as the PostgreSQL installation. To disable this and use GEOS instead use the <varname>--without-wagyu</varname> during the configure step.
 			</para>
 		</listitem>
 
@@ -596,6 +598,14 @@ tar -xvzf postgis-&last_release_version;.tar.gz</programlisting>
 			</para>
 		  </listitem>
 		</varlistentry>
+		<varlistentry>
+		  <term><command>--without-wagyu</command></term>
+		  <listitem>
+			<para>
+			  When building with MVT support, Postgis will use <ulink url="https://github.com/mapbox/wagyu/">Wagyu</ulink> to clip and validate MVT polygons. Wagyu is the fastest alternative and guarantees producing correct values for this specific case, but it requires a C++-11 compiler. With this optional argument you can disable using this library; GEOS will be used instead.
+			</para>
+		  </listitem>
+		</varlistentry>
 	  </variablelist>
 	  <note>
 		<para>
@@ -831,7 +841,8 @@ CREATE EXTENSION postgis_tiger_geocoder FROM unpackaged;
 	  </para>
 
 	  <programlisting>
-     CUnit - A unit testing framework for C - Version 2.1-2
+
+     CUnit - A unit testing framework for C - Version 2.1-3
      http://cunit.sourceforge.net/
 
 
@@ -845,6 +856,7 @@ Suite: algorithm
   Test: test_lwpoint_get_ordinate ...passed
   Test: test_point_interpolate ...passed
   Test: test_lwline_interpolate_points ...passed
+  Test: test_lwline_interpolate_point_3d ...passed
   Test: test_lwline_clip ...passed
   Test: test_lwpoly_clip ...passed
   Test: test_lwtriangle_clip ...passed
@@ -876,7 +888,8 @@ Suite: buildarea
 Suite: geometry_clean
   Test: test_lwgeom_make_valid ...passed
 Suite: clip_by_rectangle
-  Test: test_lwgeom_clip_by_rect ...passed
+  Test: test_lwgeom_clip_by_rect ...DEBUG1: lwgeom_clip_by_rect: GEOS Error: IllegalArgumentException: Invalid number of points in LinearRing found 3 - must be 0 or >= 4
+passed
 Suite: force_sfs
   Test: test_sfs_11 ...passed
   Test: test_sfs_12 ...passed
@@ -994,10 +1007,11 @@ Suite: lwstroke
 Suite: measures
   Test: test_mindistance2d_tolerance ...passed
   Test: test_mindistance3d_tolerance ...NOTICE: One or both of the geometries is missing z-value. The unknown z-value will be regarded as "any value"
+NOTICE: One or both of the geometries is missing z-value. The unknown z-value will be regarded as "any value"
 passed
   Test: test_rect_tree_contains_point ...passed
   Test: test_rect_tree_intersects_tree ...passed
-  Test: test_lwgeom_segmentize2d ...NOTICE: ptarray.c:445 - ptarray_segmentize2d: Too many segments required (1.000000e+101)
+  Test: test_lwgeom_segmentize2d ...NOTICE: ptarray.c:448 - ptarray_segmentize2d: Too many segments required (1.000000e+101)
 NOTICE: liblwgeom code interrupted
 NOTICE: liblwgeom code interrupted
 NOTICE: liblwgeom code interrupted
@@ -1193,10 +1207,9 @@ Suite: wrapx
 
 Run Summary:    Type  Total    Ran Passed Failed Inactive
               suites     44     44    n/a      0        0
-               tests    299    299    299      0        0
-             asserts   4087   4087   4087      0      n/a
-
-Elapsed time =    0.196 seconds
+               tests    300    300    300      0        0
+             asserts   4215   4215   4215      0      n/a
+Elapsed time =    0.229 seconds
 
 PostgreSQL 12devel on x86_64-w64-mingw32, compiled by gcc.exe (x86_64-posix-seh-rev0, Built by MinGW-W64 project) 8.1.0, 64-bit
   Postgis 3.0.0dev - r17081 - 2018-11-28 18:50:02
@@ -2470,6 +2483,34 @@ ALTER EXTENSION postgis_topology UPDATE TO "&last_release_version;next";</progra
 		<programlisting>ALTER TABLE spatial_ref_sys ADD CONSTRAINT spatial_ref_sys_srid_check check (srid &gt; 0 AND srid &lt; 999000 );</programlisting>
 
 		<programlisting>ALTER TABLE spatial_ref_sys ADD PRIMARY KEY(srid));</programlisting>
+	  
+		If you are upgrading an old database containing french <ulink url="https://en.wikipedia.org/wiki/Institut_g%C3%A9ographique_national">
+			IGN
+		  </ulink> cartography, you will have probably SRIDs out 
+		of range and you will see, when importing your database, issues like this :
+	  
+		<programlisting> WARNING: SRID 310642222 converted to 999175 (in reserved zone)</programlisting>
+	  
+		In this case, you can try following steps : first throw 
+		out completely the IGN from the sql which is resulting 
+		from postgis_restore.pl. So, after having run :
+	  
+		<programlisting>perl utils/postgis_restore.pl "/somepath/olddb.backup" > oldbb.sql</programlisting>
+
+		run this command :
+	  
+		<programlisting>grep -v IGNF olddb.sql > olddb-without-IGN.sql</programlisting>
+	  
+		Create then your newdb, activate the required Postgis extensions, 
+		and insert properly the french system IGN with :
+	  
+		<ulink url="https://raw.githubusercontent.com/Remi-C/IGN_spatial_ref_for_PostGIS/master/Put_IGN_SRS_into_Postgis.sql">
+			this script
+		  </ulink>
+	  
+		After these operations, import your data :
+	  
+		<programlisting>psql -h localhost -p 5432 -U postgres -d newdb -f olddb-without-IGN.sql  2> errors.txt</programlisting>
 
 	</para>
 	</listitem>

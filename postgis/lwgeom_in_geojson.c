@@ -32,12 +32,9 @@
 #include "liblwgeom.h"
 #include "lwgeom_export.h"
 
-#ifdef HAVE_LIBJSON
-# ifdef HAVE_LIBJSON_C
-#  include <json-c/json.h>
-# else
-#  include <json/json.h>
-# endif
+#if defined(HAVE_LIBJSON) || defined(HAVE_LIBJSON_C)
+
+#include <json.h>
 
 /* We don't include <utils/builtins.h> to avoid collisions with json-c/json.h */
 static text*
@@ -54,7 +51,7 @@ cstring2text(const char *cstring)
 static char*
 text2cstring(const text *textptr)
 {
-	size_t size = VARSIZE(textptr) - VARHDRSZ;
+	size_t size = VARSIZE_ANY_EXHDR(textptr);
 	char *str = lwalloc(size+1);
 	memcpy(str, VARDATA(textptr), size);
 	str[size]='\0';
@@ -94,6 +91,7 @@ Datum geom_from_geojson(PG_FUNCTION_ARGS)
 	text *geojson_input;
 	char *geojson;
 	char *srs = NULL;
+	int32_t srid = WGS84_SRID;
 
 	/* Get the geojson stream */
 	if (PG_ARGISNULL(0))
@@ -103,23 +101,23 @@ Datum geom_from_geojson(PG_FUNCTION_ARGS)
 	geojson = text2cstring(geojson_input);
 
 	lwgeom = lwgeom_from_geojson(geojson, &srs);
-	if ( ! lwgeom )
+	if (!lwgeom)
 	{
 		/* Shouldn't get here */
 		elog(ERROR, "lwgeom_from_geojson returned NULL");
 		PG_RETURN_NULL();
 	}
 
-	if ( srs )
+	if (srs)
 	{
-		lwgeom_set_srid(lwgeom, getSRIDbySRS(srs));
+		srid = getSRIDbySRS(srs);
 		lwfree(srs);
 	}
 
+	lwgeom_set_srid(lwgeom, srid);
 	geom = geometry_serialize(lwgeom);
 	lwgeom_free(lwgeom);
 
 	PG_RETURN_POINTER(geom);
 #endif
 }
-

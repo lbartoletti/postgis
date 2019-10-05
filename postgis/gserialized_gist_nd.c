@@ -19,7 +19,7 @@
  **********************************************************************
  *
  * Copyright 2009 Paul Ramsey <pramsey@cleverelephant.ca>
- * Copyright 2017 Darafei Praliaskouski <me@komzpa.net>
+ * Copyright 2017-2019 Darafei Praliaskouski <me@komzpa.net>
  *
  **********************************************************************/
 
@@ -49,6 +49,7 @@
 #include "geography.h"
 
 #include <assert.h>
+#include <math.h>
 
 /*
 ** When is a node split not so good? If more than 90% of the entries
@@ -141,7 +142,7 @@ gidx_validate(GIDX *b)
 inline bool
 gidx_is_unknown(const GIDX *a)
 {
-	size_t size = VARSIZE(a) - VARHDRSZ;
+	size_t size = VARSIZE_ANY_EXHDR(a);
 	/* "unknown" gidx objects have a too-small size of one float */
 	if (size <= 0.0)
 		return true;
@@ -612,59 +613,23 @@ gidx_distance(const GIDX *a, const GIDX *b, int m_is_time)
 	return sqrt(sum);
 }
 
-static double
-gidx_distance_m(const GIDX *a, const GIDX *b)
-{
-	int mdim_a, mdim_b;
-	double d, amin, amax, bmin, bmax;
-
-	/* Base computation on least available dimensions */
-	mdim_a = GIDX_NDIMS(a) - 1;
-	mdim_b = GIDX_NDIMS(b) - 1;
-
-	amin = GIDX_GET_MIN(a, mdim_a);
-	amax = GIDX_GET_MAX(a, mdim_a);
-	bmin = GIDX_GET_MIN(b, mdim_b);
-	bmax = GIDX_GET_MAX(b, mdim_b);
-
-	if ((amin <= bmax && amax >= bmin))
-	{
-		/* overlaps */
-		d = 0;
-	}
-	else if (bmax < amin)
-	{
-		/* is "left" */
-		d = amin - bmax;
-	}
-	else
-	{
-		/* is "right" */
-		assert(bmin > amax);
-		d = bmin - amax;
-	}
-
-	return d;
-}
-
 /**
  * Return a #GSERIALIZED with an expanded bounding box.
  */
 GSERIALIZED *
 gserialized_expand(GSERIALIZED *g, double distance)
 {
-	char boxmem[GIDX_MAX_SIZE];
-	GIDX *gidx = (GIDX *)boxmem;
-	float fdistance = (float)distance;
+	GBOX gbox;
+	gbox_init(&gbox);
 
 	/* Get our bounding box out of the geography, return right away if
 	   input is an EMPTY geometry. */
-	if (gserialized_get_gidx_p(g, gidx) == LW_FAILURE)
+	if (gserialized_get_gbox_p(g, &gbox) == LW_FAILURE)
 		return g;
 
-	gidx_expand(gidx, fdistance);
+	gbox_expand(&gbox, distance);
 
-	return gserialized_set_gidx(g, gidx);
+	return gserialized_set_gbox(g, &gbox);
 }
 
 /***********************************************************************
@@ -677,11 +642,6 @@ gserialized_expand(GSERIALIZED *g, double distance)
 PG_FUNCTION_INFO_V1(gserialized_distance_nd);
 Datum gserialized_distance_nd(PG_FUNCTION_ARGS)
 {
-	char b1mem[GIDX_MAX_SIZE];
-	GIDX *b1 = (GIDX *)b1mem;
-	char b2mem[GIDX_MAX_SIZE];
-	GIDX *b2 = (GIDX *)b2mem;
-
 	/* Feature-to-feature distance */
 	GSERIALIZED *geom1 = PG_GETARG_GSERIALIZED_P(0);
 	GSERIALIZED *geom2 = PG_GETARG_GSERIALIZED_P(1);
@@ -705,7 +665,7 @@ Datum gserialized_distance_nd(PG_FUNCTION_ARGS)
 	/* Can only add the M term if both objects have M */
 	if (lwgeom_has_m(lw1) && lwgeom_has_m(lw2))
 	{
-		double m1, m2;
+		double m1 = 0, m2 = 0;
 		int usebox = false;
 		/* Un-sqrt the distance so we can add extra terms */
 		distance = distance * distance;
@@ -742,11 +702,21 @@ Datum gserialized_distance_nd(PG_FUNCTION_ARGS)
 
 		if (usebox)
 		{
-			double d;
-			gserialized_get_gidx_p(geom1, b1);
-			gserialized_get_gidx_p(geom2, b2);
-			d = gidx_distance_m(b1, b2);
-			distance += d * d;
+			GBOX b1, b2;
+			if (gserialized_get_gbox_p(geom1, &b1) && gserialized_get_gbox_p(geom2, &b2))
+			{
+				double d;
+				/* Disjoint left */
+				if (b1.mmin > b2.mmax)
+					d = b1.mmin - b2.mmax;
+				/* Disjoint right */
+				else if (b2.mmin > b1.mmax)
+					d = b2.mmin - b1.mmax;
+				/* Not Disjoint */
+				else
+					d = 0;
+				distance += d * d;
+			}
 		}
 		else
 			distance += (m2 - m1) * (m2 - m1);
@@ -1164,35 +1134,33 @@ Datum gserialized_gist_consistent(PG_FUNCTION_ARGS)
 }
 
 /*
-** Function to pack floats of different realms
-** This function serves to pack bit flags inside float type
-** Resulted value represent can be from four different "realms"
-** Every value from realm 3 is greater than any value from realms 2, 1 and 0.
-** Every value from realm 2 is less than every value from realm 3 and greater
-** than any value from realm 1 and 0, and so on. Values from the same realm
-** loose two bits of precision. This technique is possible due to floating
-** point numbers specification according to IEEE 754: exponent bits are highest
+** Function to pack floats of different realms.
+** This function serves to pack bit flags inside float type.
+** Result value represent can be from two different "realms".
+** Every value from realm 1 is greater than any value from realm 0.
+** Values from the same realm loose one bit of precision.
+**
+** This technique is possible due to floating point numbers specification
+** according to IEEE 754: exponent bits are highest
 ** (excluding sign bits, but here penalty is always positive). If float a is
 ** greater than float b, integer A with same bit representation as a is greater
 ** than integer B with same bits as b.
 */
-static float
-pack_float(const float value, const int realm)
+static inline float
+pack_float(const float value, const uint8_t realm)
 {
 	union {
 		float f;
-		struct
-		{
+		struct {
 			unsigned value : 31, sign : 1;
 		} vbits;
-		struct
-		{
-			unsigned value : 29, realm : 2, sign : 1;
+		struct {
+			unsigned value : 30, realm : 1, sign : 1;
 		} rbits;
 	} a;
 
 	a.f = value;
-	a.rbits.value = a.vbits.value >> 2;
+	a.rbits.value = a.vbits.value >> 1;
 	a.rbits.realm = realm;
 
 	return a.f;
@@ -1209,52 +1177,37 @@ Datum gserialized_gist_penalty(PG_FUNCTION_ARGS)
 	GISTENTRY *newentry = (GISTENTRY *)PG_GETARG_POINTER(1);
 	float *result = (float *)PG_GETARG_POINTER(2);
 	GIDX *gbox_index_orig, *gbox_index_new;
-	float size_union, size_orig, edge_union, edge_orig;
-
-	POSTGIS_DEBUG(4, "[GIST] 'penalty' function called");
 
 	gbox_index_orig = (GIDX *)DatumGetPointer(origentry->key);
 	gbox_index_new = (GIDX *)DatumGetPointer(newentry->key);
 
+	/* Penalty value of 0 has special code path in Postgres's gistchoose.
+	 * It is used as an early exit condition in subtree loop, allowing faster tree descend.
+	 * For multi-column index, it lets next column break the tie, possibly more confidently.
+	 */
+	*result = 0.0;
+
 	/* Drop out if we're dealing with null inputs. Shouldn't happen. */
-	if (!gbox_index_orig && !gbox_index_new)
+	if (gbox_index_orig && gbox_index_new)
 	{
-		POSTGIS_DEBUG(4, "[GIST] both inputs NULL! returning penalty of zero");
-		*result = 0.0;
-		PG_RETURN_FLOAT8(*result);
-	}
+		/* Calculate the size difference of the boxes (volume difference in this case). */
+		float size_union = gidx_union_volume(gbox_index_orig, gbox_index_new);
+		float size_orig = gidx_volume(gbox_index_orig);
+		float volume_extension = size_union - size_orig;
 
-	/* Calculate the size difference of the boxes (volume difference in this case). */
-	size_union = gidx_union_volume(gbox_index_orig, gbox_index_new);
-	size_orig = gidx_volume(gbox_index_orig);
-	*result = size_union - size_orig;
-
-	/* REALM 0: No extension is required, volume is zero, return edge */
-	/* REALM 1: No extension is required, return nonzero area */
-	/* REALM 2: Area extension is zero, return nonzero edge extension */
-	/* REALM 3: Area extension is nonzero, return it */
-
-	if (*result == 0)
-	{
-		if (size_orig > 0)
-			*result = pack_float(size_orig, 1); /* REALM 1 */
+		/* REALM 1: Area extension is nonzero, return it */
+		if (volume_extension > FLT_EPSILON)
+			*result = pack_float(volume_extension, 1);
 		else
 		{
-			edge_union = gidx_union_edge(gbox_index_orig, gbox_index_new);
-			edge_orig = gidx_edge(gbox_index_orig);
-			*result = edge_union - edge_orig;
-			if (*result == 0)
-				*result = pack_float(edge_orig, 0); /* REALM 0 */
-			else
-				*result = pack_float(*result, 2); /* REALM 2 */
+			/* REALM 0: Area extension is zero, return nonzero edge extension */
+			float edge_union = gidx_union_edge(gbox_index_orig, gbox_index_new);
+			float edge_orig = gidx_edge(gbox_index_orig);
+			float edge_extension = edge_union - edge_orig;
+			if (edge_extension > FLT_EPSILON)
+				*result = pack_float(edge_extension, 0);
 		}
 	}
-	else
-		*result = pack_float(*result, 3); /* REALM 3 */
-
-	POSTGIS_DEBUGF(
-	    4, "[GIST] union size (%.12f), original size (%.12f), penalty (%.12f)", size_union, size_orig, *result);
-
 	PG_RETURN_POINTER(result);
 }
 

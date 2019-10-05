@@ -583,7 +583,7 @@ LWGEOM* lwgeom_from_twkb_state(twkb_parse_state *s)
 		/* Initialize */
 		has_bbox = s->has_bbox;
 		memset(&bbox, 0, sizeof(GBOX));
-		bbox.flags = gflags(s->has_z, s->has_m, 0);
+		bbox.flags = lwflags(s->has_z, s->has_m, 0);
 
 		/* X */
 		bbox.xmin = twkb_parse_state_double(s, s->factor);
@@ -631,14 +631,12 @@ LWGEOM* lwgeom_from_twkb_state(twkb_parse_state *s)
 			break;
 		/* Unknown type! */
 		default:
-			lwerror("Unsupported geometry type: %s [%d]", lwtype_name(s->lwtype), s->lwtype);
+			lwerror("%s: Unsupported geometry type: %s", __func__, lwtype_name(s->lwtype));
 			break;
 	}
 
 	if ( has_bbox )
-	{
 		geom->bbox = gbox_clone(&bbox);
-	}
 
 	return geom;
 }

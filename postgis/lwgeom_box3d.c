@@ -565,7 +565,12 @@ Datum BOX3D_construct(PG_FUNCTION_ARGS)
 		PG_RETURN_NULL();
 	}
 
-	error_if_srid_mismatch(minpoint->srid, maxpoint->srid);
+	if (lwgeom_is_empty(minpoint) || lwgeom_is_empty(maxpoint) ){
+		elog(ERROR, "BOX3D_construct: args can not be empty points");
+		PG_RETURN_NULL();
+	}
+
+	gserialized_error_if_srid_mismatch(min, max, __func__);
 
 	getPoint3dz_p(((LWPOINT *)minpoint)->point, 0, &minp);
 	getPoint3dz_p(((LWPOINT *)maxpoint)->point, 0, &maxp);

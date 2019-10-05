@@ -60,9 +60,9 @@ rtpg_strreplace(
 	const char *tmp = str;
 	char *result;
 	int found = 0;
-	int length, reslen;
-	int oldlen = strlen(oldstr);
-	int newlen = strlen(newstr);
+	int64_t length, reslen;
+	size_t oldlen = strlen(oldstr);
+	size_t newlen = strlen(newstr);
 	int limit = (count != NULL && *count > 0) ? *count : -1;
 
 	tmp = str;
@@ -278,8 +278,9 @@ rtpg_strrstr(const char *s1, const char *s2) {
 	return NULL;
 }
 
-char*
-rtpg_getSR(int srid) {
+char *
+rtpg_getSR(int32_t srid)
+{
 	int i = 0;
 	int len = 0;
 	char *sql = NULL;

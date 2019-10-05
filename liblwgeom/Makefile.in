@@ -24,8 +24,8 @@
 
 CC = @CC@
 CPPFLAGS = @CPPFLAGS@
-CFLAGS = @WARNFLAGS@ @CFLAGS@ @PICFLAGS@ @GEOS_CPPFLAGS@ @PROJ_CPPFLAGS@ @JSON_CPPFLAGS@
-LDFLAGS = @LDFLAGS@ @GEOS_LDFLAGS@ -lgeos_c @PROJ_LDFLAGS@ -lproj @JSON_LDFLAGS@ -lm
+CFLAGS = @WARNFLAGS@ @CFLAGS@ @PICFLAGS@
+LDFLAGS = @LDFLAGS@ @GEOS_LDFLAGS@ @PROJ_LDFLAGS@ @JSON_LDFLAGS@ -lm
 NUMERICFLAGS = @NUMERICFLAGS@
 top_builddir = @top_builddir@
 prefix = @prefix@
@@ -55,6 +55,7 @@ SA_OBJS = \
 	measures.o \
 	measures3d.o \
 	ptarray.o \
+	lookup3.o \
 	lwgeom_api.o \
 	lwgeom.o \
 	lwpoint.o \
@@ -91,11 +92,13 @@ SA_OBJS = \
 	lwstroke.o \
 	lwlinearreferencing.o \
 	lwprint.o \
-	g_box.o \
-	g_serialized.o \
-	g_util.o \
+	gbox.o \
+	gserialized.o \
+	gserialized1.o \
+	gserialized2.o \
 	lwgeodetic.o \
 	lwgeodetic_tree.o \
+	lwrandom.o \
 	lwtree.o \
 	lwout_gml.o \
 	lwout_kml.o \
@@ -151,6 +154,7 @@ SA_HEADERS = \
 	lwin_wkt.h \
 	lwin_wkt_parse.h \
 	lwout_twkb.h \
+	lwrandom.h \
 	lwtree.h \
 	measures3d.h \
 	measures.h \
@@ -189,7 +193,11 @@ distclean: clean
 	rm -f liblwgeom.h Makefile
 	rm -f Makefile
 
-check: liblwgeom.la
+check: check-unit
+
+check-regress:
+
+check-unit: liblwgeom.la
 	$(MAKE) -C cunit check
 
 # Command to build each of the .lo files
@@ -200,9 +208,17 @@ $(LT_NM_OBJS): %.lo: %.c
 	$(LIBTOOL) --mode=compile $(CC) $(CPPFLAGS) $(CFLAGS) $(NUMERICFLAGS) -c -o $@ $<
 
 lwin_wkt_parse.c lwin_wkt_parse.h: lwin_wkt_parse.y
+	@test -n "$(YACC)" || { \
+			echo "No yacc found, cannot build parser" >&2; \
+			false; \
+	}
 	$(YACC) -p wkt_yy -o'lwin_wkt_parse.c' -d lwin_wkt_parse.y
 
 lwin_wkt_lex.c: lwin_wkt_lex.l
+	@test -n "$(LEX)" || { \
+			echo "No lex found, cannot build parser" >&2; \
+			false; \
+	}
 	$(LEX) -i lwin_wkt_lex.l
 
 liblwgeom.h: liblwgeom.h.in

@@ -184,12 +184,9 @@ select '142', ST_AsEWKT(ST_multi(ST_setsrid('LINESTRING(2 2, 3 3)'::geometry, 5)
 select '143', ST_AsEWKT(ST_multi(ST_setsrid('POLYGON((0 0, 1 0, 1 1, 0 1, 0 0))'::geometry, 6)));
 select '143c1', ST_AsEWKT(ST_multi('CIRCULARSTRING(0 0, 1 1, 2 2)'::geometry));
 select '144', ST_AsEWKT(ST_Force3dm('POINT(1 2 3)'));
-select '144d', ST_AsEWKT(ST_Force_3dm('POINT(1 2 3)'));
 select '145', ST_AsEWKT(ST_Force3dz('POINTM(1 2 3)'));
-select '145d', ST_AsEWKT(ST_Force_3dz('POINTM(1 2 3)'));
 select '146', ST_AsEWKT(ST_Force4d('POINTM(1 2 3)'));
 select '147', ST_AsEWKT(ST_Force4d('POINT(1 2 3)'));
-select '147d', ST_AsEWKT(ST_Force_4d('POINT(1 2 3)'));
 
 select '148', ST_AsText(ST_segmentize('LINESTRING(0 0, 10 0)'::geometry, 5));
 
@@ -267,6 +264,18 @@ select '224', ST_Expand(null::box2d, 1, 1);
 select '225', ST_Expand('BOX(-2 3, -1 6'::BOX2D, 4, 2);
 select '226', ST_SRID(ST_Expand('SRID=4326;POINT (0 0)'::geometry, 1))=4326;
 
+-- ST_TileEnvelope()
+select '227', ST_AsEWKT(ST_TileEnvelope(-1, 0, 0));
+select '228', ST_AsEWKT(ST_TileEnvelope(0, 0, 1));
+select '229', ST_AsEWKT(ST_TileEnvelope(0, 0, 0));
+select '230', ST_AsEWKT(ST_TileEnvelope(4, 8, 8));
+select '231', ST_AsEWKT(ST_TileEnvelope(4, 15, 15));
+select '232', ST_AsEWKT(ST_TileEnvelope(4, 8, 8, ST_MakeEnvelope(-100, -100, 100, 100, 0)));
+select '233', ST_AsEWKT(ST_TileEnvelope(4, 15, 15, ST_MakeEnvelope(-100, -100, 100, 100, 0)));
+select '234', ST_AsEWKT(ST_TileEnvelope(4, 0, 0, ST_MakeEnvelope(-100, -100, 100, 100, 0)));
+select '235', ST_AsEWKT(ST_TileEnvelope(4, 8, 8, ST_MakeEnvelope(-200, -100, 200, 100, 0)));
+
+
 -- Drop test table
 DROP table test;
 
@@ -282,3 +291,8 @@ SELECT regexp_replace(probin, '(rt)?postgis(_[^-]*)?', '')
 	FROM pg_proc WHERE proname = 'postgis_lib_version'
 )
 ORDER BY 2;
+
+
+SELECT 'UNEXPECTED', postgis_full_version()
+	WHERE postgis_full_version() LIKE '%UNPACKAGED%'
+	   OR postgis_full_version() LIKE '%need upgrade%';

@@ -261,7 +261,7 @@ int16_t
 read_int16(const uint8_t** from, uint8_t littleEndian) {
     assert(NULL != from);
 
-    return read_uint16(from, littleEndian);
+    return (int16_t)read_uint16(from, littleEndian);
 }
 
 /* unused up to now
@@ -333,7 +333,7 @@ int32_t
 read_int32(const uint8_t** from, uint8_t littleEndian) {
     assert(NULL != from);
 
-    return read_uint32(from, littleEndian);
+    return (int32_t)read_uint32(from, littleEndian);
 }
 
 /* unused up to now
@@ -625,7 +625,7 @@ rt_raster_serialize(rt_raster raster) {
 			}
 			case PT_8BSI: {
 				int8_t v = band->nodataval;
-				*ptr = v;
+				*ptr = (uint8_t)v;
 				ptr += 1;
 				break;
 			}
@@ -728,7 +728,11 @@ rt_raster_deserialize(void* serialized, int header_only) {
 	const uint8_t *beg = NULL;
 	uint16_t i = 0;
 	uint16_t j = 0;
-	uint8_t littleEndian = isMachineLittleEndian();
+#ifdef WORDS_BIGENDIAN
+	uint8_t littleEndian = LW_FALSE;
+#else
+	uint8_t littleEndian = LW_TRUE;
+#endif
 
 	assert(NULL != serialized);
 

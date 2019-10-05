@@ -29,6 +29,7 @@
 #include "fmgr.h"
 #include "access/hash.h"
 #include "utils/geo_decls.h"
+#include "utils/sortsupport.h" /* SortSupport */
 
 #include "../postgis_config.h"
 #include "liblwgeom.h"
@@ -68,7 +69,7 @@ Datum lwgeom_le(PG_FUNCTION_ARGS)
 	int cmp = gserialized_cmp(g1, g2);
 	PG_FREE_IF_COPY(g1, 0);
 	PG_FREE_IF_COPY(g2, 1);
-	if (cmp == 0)
+	if (cmp <= 0)
 		PG_RETURN_BOOL(true);
 	else
 		PG_RETURN_BOOL(false);
@@ -130,28 +131,69 @@ Datum lwgeom_cmp(PG_FUNCTION_ARGS)
 PG_FUNCTION_INFO_V1(lwgeom_hash);
 Datum lwgeom_hash(PG_FUNCTION_ARGS)
 {
-	Datum hval;
 	GSERIALIZED *g1 = PG_GETARG_GSERIALIZED_P(0);
-	/* Point to just the type/coordinate part of buffer */
-	size_t hsz1 = gserialized_header_size(g1);
-	uint8_t *b1 = (uint8_t*)g1 + hsz1;
-	/* Calculate size of type/coordinate buffer */
-	size_t sz1 = VARSIZE(g1);
-	size_t bsz1 = sz1 - hsz1;
-	/* Calculate size of srid/type/coordinate buffer */
-	int srid = gserialized_get_srid(g1);
-	size_t bsz2 = bsz1 + sizeof(int);
-	uint8_t *b2 = palloc(bsz2);
-	/* Copy srid into front of combined buffer */
-	memcpy(b2, &srid, sizeof(int));
-	/* Copy type/coordinates into rest of combined buffer */
-	memcpy(b2+sizeof(int), b1, bsz1);
-	/* Hash combined buffer */
-	hval = hash_any(b2, bsz2);
-	pfree(b2);
+
+	int32_t hval = gserialized_hash(g1);
 	PG_FREE_IF_COPY(g1, 0);
-	PG_RETURN_DATUM(hval);
+	PG_RETURN_INT32(hval);
 }
 
+static int
+lwgeom_cmp_abbrev(Datum x, Datum y, SortSupport ssup)
+{
+	/* Empty is a special case */
+	if (x == 0 || y == 0 || x == y)
+		return 0; /* 0 means "ask bigger comparator" and not equality*/
+	else if (x > y)
+		return 1;
+	else
+		return -1;
+}
 
+static int
+lwgeom_cmp_full(Datum x, Datum y, SortSupport ssup)
+{
+	GSERIALIZED *g1 = (GSERIALIZED *)PG_DETOAST_DATUM(x);
+	GSERIALIZED *g2 = (GSERIALIZED *)PG_DETOAST_DATUM(y);
+	int ret = gserialized_cmp(g1, g2);
+	POSTGIS_FREE_IF_COPY_P(g1, x);
+	POSTGIS_FREE_IF_COPY_P(g2, y);
+	return ret;
+}
 
+static bool
+lwgeom_abbrev_abort(int memtupcount, SortSupport ssup)
+{
+	return LW_FALSE;
+}
+
+static Datum
+lwgeom_abbrev_convert(Datum original, SortSupport ssup)
+{
+	GSERIALIZED *g = (GSERIALIZED *)PG_DETOAST_DATUM(original);
+	uint64_t hash = gserialized_get_sortable_hash(g);
+	POSTGIS_FREE_IF_COPY_P(g, original);
+	return hash;
+}
+
+/*
+ * Sort support strategy routine
+ */
+PG_FUNCTION_INFO_V1(lwgeom_sortsupport);
+Datum lwgeom_sortsupport(PG_FUNCTION_ARGS)
+{
+	SortSupport ssup = (SortSupport)PG_GETARG_POINTER(0);
+
+	ssup->comparator = lwgeom_cmp_full;
+	ssup->ssup_extra = NULL;
+	/* Enable sortsupport only on 64 bit Datum */
+	if (ssup->abbreviate && sizeof(Datum) == 8)
+	{
+		ssup->comparator = lwgeom_cmp_abbrev;
+		ssup->abbrev_converter = lwgeom_abbrev_convert;
+		ssup->abbrev_abort = lwgeom_abbrev_abort;
+		ssup->abbrev_full_comparator = lwgeom_cmp_full;
+	}
+
+	PG_RETURN_VOID();
+}

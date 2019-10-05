@@ -45,7 +45,6 @@
 /* Prototypes */
 static int reverse_points(int num_points, double *x, double *y, double *z, double *m);
 static int is_clockwise(int num_points,double *x,double *y,double *z);
-static int is_bigendian(void);
 static SHPObject *create_point(SHPDUMPERSTATE *state, LWPOINT *lwpoint);
 static SHPObject *create_multipoint(SHPDUMPERSTATE *state, LWMPOINT *lwmultipoint);
 static SHPObject *create_polygon(SHPDUMPERSTATE *state, LWPOLY *lwpolygon);
@@ -67,6 +66,17 @@ static char * goodDBFValue(char *in, char fieldType);
 /** @brief Binary to hexewkb conversion function */
 char *convert_bytes_to_hex(uint8_t *ewkb, size_t size);
 
+static SHPObject *
+create_point_empty(SHPDUMPERSTATE *state, LWPOINT *lwpoint)
+{
+	SHPObject *obj;
+	const uint8_t ndr_nan[8] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf8, 0x7f};
+	double double_nan;
+
+	memcpy(&double_nan, ndr_nan, 8);
+	obj = SHPCreateObject(state->outshptype, -1, 0, NULL, NULL, 1, &double_nan, &double_nan, &double_nan, &double_nan);
+	return obj;
+}
 
 static SHPObject *
 create_point(SHPDUMPERSTATE *state, LWPOINT *lwpoint)
@@ -566,21 +576,6 @@ getMaxFieldSize(PGconn *conn, char *schema, char *table, char *fname)
 	return size;
 }
 
-static int
-is_bigendian(void)
-{
-	int test = 1;
-
-	if ( (((char *)(&test))[0]) == 1)
-	{
-		return 0; /*NDR (little_endian) */
-	}
-	else
-	{
-		return 1; /*XDR (big_endian) */
-	}
-}
-
 char *
 shapetypename(int num)
 {
@@ -887,15 +882,15 @@ getTableInfo(SHPDUMPERSTATE *state)
 		{
 			query = malloc(150 + 4 * strlen(state->geo_col_name) + strlen(state->schema) + strlen(state->table));
 
-			sprintf(query, "SELECT count(\"%s\"), max(ST_zmflag(\"%s\"::geometry)), geometrytype(\"%s\"::geometry) FROM \"%s\".\"%s\" GROUP BY geometrytype(\"%s\"::geometry)",
-			state->geo_col_name, state->geo_col_name, state->geo_col_name, state->schema, state->table, state->geo_col_name);
+			sprintf(query, "SELECT count(1), max(ST_zmflag(\"%s\"::geometry)), geometrytype(\"%s\"::geometry) FROM \"%s\".\"%s\" GROUP BY 3",
+			state->geo_col_name, state->geo_col_name, state->schema, state->table);
 		}
 		else
 		{
 			query = malloc(150 + 4 * strlen(state->geo_col_name) + strlen(state->table));
 
-			sprintf(query, "SELECT count(\"%s\"), max(ST_zmflag(\"%s\"::geometry)), geometrytype(\"%s\"::geometry) FROM \"%s\" GROUP BY geometrytype(\"%s\"::geometry)",
-			state->geo_col_name, state->geo_col_name, state->geo_col_name, state->table, state->geo_col_name);
+			sprintf(query, "SELECT count(1), max(ST_zmflag(\"%s\"::geometry)), geometrytype(\"%s\"::geometry) FROM \"%s\" GROUP BY 3",
+			state->geo_col_name, state->geo_col_name, state->table);
 		}
 	}
 	else
@@ -955,9 +950,14 @@ getTableInfo(SHPDUMPERSTATE *state)
 
 		for (i = 0; i < PQntuples(res); i++)
 		{
-			geometry_type_from_string(PQgetvalue(res, i, 2), &type, &dummy, &dummy);
+			/* skip null geometries */
+			if (PQgetisnull(res, i, 2))
+			{
+				state->rowcount += atoi(PQgetvalue(res, i, 0));
+				continue;
+			}
 
-			if (!type) continue; /* skip null geometries */
+			geometry_type_from_string(PQgetvalue(res, i, 2), &type, &dummy, &dummy);
 
 			/* We can always set typefound to that of the first column found */
 			if (!typefound)
@@ -1170,7 +1170,6 @@ ShpDumperCreate(SHPDUMPERCONFIG *config)
 	state->dbffieldnames = NULL;
 	state->dbffieldtypes = NULL;
 	state->pgfieldnames = NULL;
-	state->big_endian = is_bigendian();
 	state->message[0] = '\0';
 	colmap_init(&state->column_map);
 
@@ -1874,30 +1873,27 @@ ShpDumperOpenTable(SHPDUMPERSTATE *state)
 		if (state->fieldcount > 0)
 			strcat(state->main_scan_query, ",");
 
-		if (state->big_endian)
+#ifdef WORDS_BIGENDIAN
+		if (state->pgis_major_version > 0)
 		{
-			if (state->pgis_major_version > 0)
-			{
-				sprintf(buf, "ST_asEWKB(ST_SetSRID(%s::geometry, 0), 'XDR') AS _geoX", quote_identifier(state->geo_col_name) );
-			}
-			else
-			{
-				sprintf(buf, "asbinary(%s::geometry, 'XDR') AS _geoX",
-					quote_identifier(state->geo_col_name) );
-			}
+			sprintf(buf, "ST_asEWKB(ST_SetSRID(%s::geometry, 0), 'XDR') AS _geoX", quote_identifier(state->geo_col_name) );
 		}
-		else /* little_endian */
+		else
 		{
-			if (state->pgis_major_version > 0)
-			{
-				sprintf(buf, "ST_AsEWKB(ST_SetSRID(%s::geometry, 0), 'NDR') AS _geoX", quote_identifier(state->geo_col_name) ) ;
-			}
-			else
-			{
-				sprintf(buf, "asbinary(%s::geometry, 'NDR') AS _geoX",
-					quote_identifier(state->geo_col_name) );
-			}
+			sprintf(buf, "asbinary(%s::geometry, 'XDR') AS _geoX",
+				quote_identifier(state->geo_col_name) );
 		}
+#else
+		if (state->pgis_major_version > 0)
+		{
+			sprintf(buf, "ST_AsEWKB(ST_SetSRID(%s::geometry, 0), 'NDR') AS _geoX", quote_identifier(state->geo_col_name) ) ;
+		}
+		else
+		{
+			sprintf(buf, "asbinary(%s::geometry, 'NDR') AS _geoX",
+				quote_identifier(state->geo_col_name) );
+		}
+#endif
 
 		strcat(state->main_scan_query, buf);
 	}
@@ -2107,7 +2103,14 @@ int ShpLoaderGenerateShapeRow(SHPDUMPERSTATE *state)
 			switch (lwgeom->type)
 			{
 			case POINTTYPE:
-				obj = create_point(state, lwgeom_as_lwpoint(lwgeom));
+				if (lwgeom_is_empty(lwgeom))
+				{
+					obj = create_point_empty(state, lwgeom_as_lwpoint(lwgeom));
+				}
+				else
+				{
+					obj = create_point(state, lwgeom_as_lwpoint(lwgeom));
+				}
 				break;
 
 			case MULTIPOINTTYPE:

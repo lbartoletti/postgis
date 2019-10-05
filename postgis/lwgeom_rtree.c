@@ -428,8 +428,8 @@ static GeomCacheMethods RTreeCacheMethods =
 	RTreeAllocator
 };
 
-RTREE_POLY_CACHE*
-GetRtreeCache(FunctionCallInfoData* fcinfo, GSERIALIZED* g1)
+RTREE_POLY_CACHE *
+GetRtreeCache(FunctionCallInfo fcinfo, GSERIALIZED *g1)
 {
 	RTreeGeomCache* cache = (RTreeGeomCache*)GetGeomCache(fcinfo, &RTreeCacheMethods, g1, NULL);
 	RTREE_POLY_CACHE* index = NULL;
@@ -471,7 +471,7 @@ LWMLINE *RTreeFindLineSegments(RTREE_NODE *root, double value)
 		lwgeoms = lwalloc(sizeof(LWGEOM *));
 		lwgeoms[0] = (LWGEOM *)root->segment;
 
-		POSTGIS_DEBUGF(3, "Found geom %p, type %d, dim %d", root->segment, root->segment->type, FLAGS_GET_Z(root->segment->flags));
+		POSTGIS_DEBUGF(3, "Found geom %p, type %d, dim %d", root->segment, root->segment->type, lwgeom_ndims((LWGEOM *)(root->segment)));
 
 		result = (LWMLINE *)lwcollection_construct(MULTILINETYPE, SRID_UNKNOWN, NULL, 1, lwgeoms);
 	}
@@ -484,7 +484,7 @@ LWMLINE *RTreeFindLineSegments(RTREE_NODE *root, double value)
 		tmp = RTreeFindLineSegments(root->leftNode, value);
 		if (tmp)
 		{
-			POSTGIS_DEBUGF(3, "Found geom %p, type %d, dim %d", tmp, tmp->type, FLAGS_GET_Z(tmp->flags));
+			POSTGIS_DEBUGF(3, "Found geom %p, type %d, dim %d", tmp, tmp->type, lwgeom_ndims((LWGEOM *)tmp));
 
 			if (result)
 				result = RTreeMergeMultiLines(result, tmp);
@@ -501,7 +501,7 @@ LWMLINE *RTreeFindLineSegments(RTREE_NODE *root, double value)
 		tmp = RTreeFindLineSegments(root->rightNode, value);
 		if (tmp)
 		{
-			POSTGIS_DEBUGF(3, "Found geom %p, type %d, dim %d", tmp, tmp->type, FLAGS_GET_Z(tmp->flags));
+			POSTGIS_DEBUGF(3, "Found geom %p, type %d, dim %d", tmp, tmp->type, lwgeom_ndims((LWGEOM *)tmp));
 
 			if (result)
 				result = RTreeMergeMultiLines(result, tmp);

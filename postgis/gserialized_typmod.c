@@ -235,7 +235,7 @@ static uint32 gserialized_typmod_in(ArrayType *arr, int is_geography)
 	                  &elem_values, NULL, &n);
 
 	/* Set the SRID to the default value first */
-	if ( is_geography)
+	if (is_geography)
 	    TYPMOD_SET_SRID(typmod, SRID_DEFAULT);
 	else
 	    TYPMOD_SET_SRID(typmod, SRID_UNKNOWN);
@@ -266,8 +266,7 @@ static uint32 gserialized_typmod_in(ArrayType *arr, int is_geography)
 		}
 		if ( i == 1 ) /* SRID */
 		{
-			int srid = pg_atoi(DatumGetCString(elem_values[i]),
-			                   sizeof(int32), '\0');
+			int32_t srid = pg_atoi(DatumGetCString(elem_values[i]), sizeof(int32), '\0');
 			srid = clamp_srid(srid);
 			POSTGIS_DEBUGF(3, "srid: %d", srid);
 			if ( srid != SRID_UNKNOWN )
@@ -292,9 +291,9 @@ Datum geography_typmod_in(PG_FUNCTION_ARGS)
 {
 	ArrayType *arr = (ArrayType *) DatumGetPointer(PG_GETARG_DATUM(0));
 	int32 typmod = gserialized_typmod_in(arr, LW_TRUE);
-	int srid = TYPMOD_GET_SRID(typmod);
+	int32_t srid = TYPMOD_GET_SRID(typmod);
 	/* Check the SRID is legal (geographic coordinates) */
-	srid_is_latlong(fcinfo, srid);
+	srid_check_latlong(fcinfo, srid);
 
 	PG_RETURN_INT32(typmod);
 }

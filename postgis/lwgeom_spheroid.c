@@ -439,7 +439,7 @@ Datum LWGEOM_length_ellipsoid_linestring(PG_FUNCTION_ARGS)
  *    (if deltaX is 1 degrees, then that distance represents 1/360 of a circle of radius S.)
  *
  *
- *  Parts taken from PROJ4 - geodetic_to_geocentric() (for calculating Rn)
+ *  Parts taken from PROJ - geodetic_to_geocentric() (for calculating Rn)
  *
  *  remember that lat1/long1/lat2/long2 are comming in a *RADIANS* not degrees.
  *
@@ -489,11 +489,10 @@ Datum geometry_distance_spheroid(PG_FUNCTION_ARGS)
 	bool use_spheroid = PG_GETARG_BOOL(3);
 	LWGEOM *lwgeom1, *lwgeom2;
 	double distance;
+	gserialized_error_if_srid_mismatch(geom1, geom2, __func__);
 
 	/* Calculate some other parameters on the spheroid */
 	spheroid_init(sphere, sphere->a, sphere->b);
-
-	error_if_srid_mismatch(gserialized_get_srid(geom1), gserialized_get_srid(geom2));
 
 	/* Catch sphere special case and re-jig spheroid appropriately */
 	if ( ! use_spheroid )

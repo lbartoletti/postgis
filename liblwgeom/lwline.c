@@ -39,33 +39,24 @@
  * use SRID=SRID_UNKNOWN for unknown SRID (will have 8bit type's S = 0)
  */
 LWLINE *
-lwline_construct(int srid, GBOX *bbox, POINTARRAY *points)
+lwline_construct(int32_t srid, GBOX *bbox, POINTARRAY *points)
 {
-	LWLINE *result;
-	result = (LWLINE*) lwalloc(sizeof(LWLINE));
-
-	LWDEBUG(2, "lwline_construct called.");
-
+	LWLINE *result = (LWLINE *)lwalloc(sizeof(LWLINE));
 	result->type = LINETYPE;
-
 	result->flags = points->flags;
 	FLAGS_SET_BBOX(result->flags, bbox?1:0);
-
-	LWDEBUGF(3, "lwline_construct type=%d", result->type);
-
 	result->srid = srid;
 	result->points = points;
 	result->bbox = bbox;
-
 	return result;
 }
 
 LWLINE *
-lwline_construct_empty(int srid, char hasz, char hasm)
+lwline_construct_empty(int32_t srid, char hasz, char hasm)
 {
 	LWLINE *result = lwalloc(sizeof(LWLINE));
 	result->type = LINETYPE;
-	result->flags = gflags(hasz,hasm,0);
+	result->flags = lwflags(hasz,hasm,0);
 	result->srid = srid;
 	result->points = ptarray_construct_empty(hasz, hasm, 1);
 	result->bbox = NULL;
@@ -157,7 +148,7 @@ lwline_same(const LWLINE *l1, const LWLINE *l2)
  * LWLINE dimensions are large enough to host all input dimensions.
  */
 LWLINE *
-lwline_from_lwgeom_array(int srid, uint32_t ngeoms, LWGEOM **geoms)
+lwline_from_lwgeom_array(int32_t srid, uint32_t ngeoms, LWGEOM **geoms)
 {
 	uint32_t i;
 	int hasz = LW_FALSE;
@@ -234,7 +225,7 @@ lwline_from_lwgeom_array(int srid, uint32_t ngeoms, LWGEOM **geoms)
  * LWLINE dimensions are large enough to host all input dimensions.
  */
 LWLINE *
-lwline_from_ptarray(int srid, uint32_t npoints, LWPOINT **points)
+lwline_from_ptarray(int32_t srid, uint32_t npoints, LWPOINT **points)
 {
  	uint32_t i;
 	int hasz = LW_FALSE;
@@ -281,7 +272,7 @@ lwline_from_ptarray(int srid, uint32_t npoints, LWPOINT **points)
  * Construct a LWLINE from a LWMPOINT
  */
 LWLINE *
-lwline_from_lwmpoint(int srid, const LWMPOINT *mpoint)
+lwline_from_lwmpoint(int32_t srid, const LWMPOINT *mpoint)
 {
 	uint32_t i;
 	POINTARRAY *pa = NULL;
