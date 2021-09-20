@@ -14,7 +14,7 @@ task:
   install_script:
     - ASSUME_ALWAYS_YES=yes pkg bootstrap -f ; pkg upgrade -y
     - sed -i.bak -e 's,pkg+http://pkg.FreeBSD.org/\${ABI}/quarterly,pkg+http://pkg.FreeBSD.org/\${ABI}/latest,' /etc/pkg/FreeBSD.conf
-    - pkg install -y bison postgresql11-server gmake libxml2 autoconf automake libtool pkgconf gettext iconv pcre gdal sfcgal geos libxslt cunit protobuf json-c postgresql11-contrib gtk2
+    - pkg install -y bison postgresql11-server gmake libxml2 autoconf automake libtool pkgconf gettext iconv pcre gdal sfcgal geos libxslt cunit protobuf-c json-c postgresql11-contrib gtk2
 
   build_script:
     # will be removed
