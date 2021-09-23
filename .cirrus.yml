@@ -14,7 +14,7 @@ task:
   install_script:
     - ASSUME_ALWAYS_YES=yes pkg bootstrap -f ; pkg upgrade -y
     - sed -i.bak -e 's,pkg+http://pkg.FreeBSD.org/\${ABI}/quarterly,pkg+http://pkg.FreeBSD.org/\${ABI}/latest,' /etc/pkg/FreeBSD.conf
-    - pkg install -y bison postgresql11-server gmake libxml2 autoconf automake libtool pkgconf gettext iconv pcre gdal sfcgal geos libxslt cunit protobuf-c json-c postgresql11-contrib gtk2
+    - pkg install -y bison postgresql12-server gmake libxml2 autoconf automake libtool pkgconf gettext iconv pcre proj gdal sfcgal geos libxslt cunit protobuf-c json-c postgresql12-contrib gtk2
 
   build_script:
     # will be removed
@@ -23,7 +23,11 @@ task:
     - service postgresql onestart
     - su -l postgres -c "createuser -s `whoami`"
     - ./autogen.sh
-    - ./configure CFLAGS="-I/usr/local/include -Wall -fno-omit-frame-pointer -Werror" LDFLAGS="-L/usr/local/lib" PKG_CONFIG="/usr/local/bin/pkgconf" ---with-projdir=/usr/local --with-libiconv=/usr/local-with-topology --with-gdalconfig=/usr/local/bin/gdal-config --with-sfcgal=/usr/local/bin/sfcgal-config --with-address-standardizer --with-protobuf --with-wagyu --with-nls
+    - ./configure CFLAGS="-isystem /usr/local/include -Wall -fno-omit-frame-pointer -Werror" LIBS="-L/usr/local/lib" LDFLAGS="-L/usr/local/lib" PKG_CONFIG="/usr/local/bin/pkgconf" \
+        --with-projdir=/usr/local --with-libiconv=/usr/local \
+        --with-topology --with-gdalconfig=/usr/local/bin/gdal-config \
+        --with-sfcgal=/usr/local/bin/sfcgal-config \
+        --with-address-standardizer --with-protobuf --with-wagyu --with-nls
     - gmake -j8
     - gmake -j8 check RUNTESTFLAGS=-v
     - gmake -j8 check RUNTESTFLAGS="-v --dumprestore"
