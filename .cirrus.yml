@@ -29,4 +29,3 @@ task:
     - gmake -j8 install
     - gmake -j8 check RUNTESTFLAGS="-v --extension"
     - gmake -j8 check RUNTESTFLAGS="-v --dumprestore"
-    - gmake -j8 garden
