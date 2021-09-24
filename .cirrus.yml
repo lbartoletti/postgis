@@ -21,7 +21,7 @@ task:
     - find . -name "*.pl" | xargs sed -i -r 's|/usr/bin/perl|/usr/bin/env perl|'
   configure_script:
     - ./autogen.sh
-    - ./configure --without-libiconv-prefix --without-gui --without-interrupt-tests --with-topology --with-gdalconfig=/usr/local/bin/gdal-config --with-sfcgal=/usr/local/bin/sfcgal-config --with-address-standardizer --with-protobuf
+    - ./configure --with-libiconv-prefix=/usr/local --without-gui --without-interrupt-tests --with-topology --with-gdalconfig=/usr/local/bin/gdal-config --with-sfcgal=/usr/local/bin/sfcgal-config --with-address-standardizer --with-protobuf
     - service postgresql oneinitdb
     - service postgresql onestart
     - su -l postgres -c "createuser -s `whoami`"
@@ -47,6 +47,6 @@ task:
           image_family: freebsd-14-0-snap
       env:
           CFLAGS: -isystem /usr/local/include -Wall -fno-omit-frame-pointer -Werror
-          LIBS: -L/usr/local/lib
+          LIBS: -L/usr/local/lib -iconv
           LDFLAGS: -L/usr/local/lib
           PKG_CONFIG: /usr/local/bin/pkgconf
