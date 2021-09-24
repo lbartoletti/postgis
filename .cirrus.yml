@@ -47,6 +47,5 @@ task:
           image_family: freebsd-14-0-snap
       env:
           CFLAGS: -isystem /usr/local/include -Wall -fno-omit-frame-pointer -Werror
-          LIBS: -L/usr/local/lib -iconv
-          LDFLAGS: -L/usr/local/lib
+          LDFLAGS: -L/usr/local/lib -iconv
           PKG_CONFIG: /usr/local/bin/pkgconf
