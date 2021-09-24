@@ -21,7 +21,7 @@ task:
     - find . -name "*.pl" | xargs sed -i -r 's|/usr/bin/perl|/usr/bin/env perl|'
   configure_script:
     - ./autogen.sh
-    - ./configure --with-libiconv-prefix=/usr/local --with-topology --with-gdalconfig=/usr/local/bin/gdal-config --with-sfcgal=/usr/local/bin/sfcgal-config --with-address-standardizer --with-protobuf
+    - ./configure --without-libiconv-prefix --without-gui --without-interrupt-tests --with-topology --with-gdalconfig=/usr/local/bin/gdal-config --with-sfcgal=/usr/local/bin/sfcgal-config --with-address-standardizer --with-protobuf
     - service postgresql oneinitdb
     - service postgresql onestart
     - su -l postgres -c "createuser -s `whoami`"
