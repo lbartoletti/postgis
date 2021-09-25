@@ -33,15 +33,9 @@ task:
     - gmake -j8 check RUNTESTFLAGS="-v --extension"
     - gmake -j8 check RUNTESTFLAGS="-v --dumprestore"
   matrix:
-    - name: freebsd11-amd64
-      freebsd_instance:
-        image: freebsd-11-4-release-amd64
     - name: freebsd12-amd64
       freebsd_instance:
           image: freebsd-12-2-release-amd64
     - name: freebsd13-amd64
       freebsd_instance:
           image: freebsd-13-0-release-amd64
-    - name: freebsd14-amd64
-      freebsd_instance:
-          image_family: freebsd-14-0-snap
