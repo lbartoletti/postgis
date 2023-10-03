@@ -52,6 +52,7 @@ Datum sfcgal_is_solid(PG_FUNCTION_ARGS);
 Datum sfcgal_convexhull3D(PG_FUNCTION_ARGS);
 Datum sfcgal_alphashape(PG_FUNCTION_ARGS);
 Datum sfcgal_optimalalphashape(PG_FUNCTION_ARGS);
+Datum sfcgal_extrudestraigthskeleton(PG_FUNCTION_ARGS);
 
 /* Initialize sfcgal with PostGIS error handlers */
 void sfcgal_postgis_init(void);
