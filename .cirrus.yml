@@ -8,6 +8,18 @@ task:
   install_script:
     - sed -i.bak -e 's,pkg+http://pkg.FreeBSD.org/\${ABI}/quarterly,pkg+http://pkg.FreeBSD.org/\${ABI}/latest,' /etc/pkg/FreeBSD.conf
     - ASSUME_ALWAYS_YES=yes pkg bootstrap -f
+    # Begin: SFCGAL 1.5.0 and CGAL 5.6
+    - pkg install -y gmp mpfr boost-libs cmake ninja
+    - fetch "https://github.com/CGAL/cgal/releases/download/v5.6/CGAL-5.6.tar.xz" -o CGAL-5.6.tar.xz
+    - fetch "https://gitlab.com/Oslandia/SFCGAL/-/archive/master/SFCGAL-master.tar.gz" -o SFCGAL.tar.gz
+    - tar xzf SFCGAL.tar.gz
+    - cd SFCGAL-master
+    - tar xJf ../CGAL-5.6.tar.xz
+    - cmake -GNinja -S . -B build -DCGAL_DIR=CGAL-5.6
+    - cmake --build build
+    - cmake --install build
+    - cd ..
+    # End: SFCGAL 1.5.0 and CGAL 5.6
     - pkg install -y
         autoconf
         automake
@@ -28,7 +40,6 @@ task:
         postgresql13-server
         proj
         protobuf-c
-        sfcgal
     - projsync --system-directory --source-id us_noaa
     - projsync --system-directory --source-id ch_swisstopo
 
