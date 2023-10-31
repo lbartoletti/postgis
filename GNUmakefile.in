@@ -97,6 +97,7 @@ check-no-trailing-blanks:
 		grep -v vector_tile.pb-c | \
 		grep -v postgis/sqldefines.h | \
 		grep -v deps/ | \
+		grep -v SFCGAL-master/ | \
 		xargs grep -n '[[:space:]]$$'
 
 installcheck: installcheck-base installcheck-upgrade
