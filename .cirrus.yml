@@ -26,6 +26,7 @@ task:
         bison
         cunit
         docbook
+        docbook-xsl-ns
         gdal
         geos
         gmake
