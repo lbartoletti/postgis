@@ -1,5 +1,6 @@
 
 syntax = "proto2";
+edition = "2022";
 
 option optimize_for = LITE_RUNTIME;
 
