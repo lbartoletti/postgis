@@ -105,6 +105,10 @@ task:
 
       brew services start postgresql@${PG}
       make -j$(sysctl -n hw.logicalcpu) || { brew services stop postgresql@${PG}; exit 1; }
+      make install || { brew services stop postgresql@${PG}; exit 1; }
+      createdb gis
+      psql -d gis -c "CREATE EXTENSION postgis_sfcgal CASCADE;"
+      psql -d gis -f sfcgal/regress/alphawrapping.sql
       make -j$(sysctl -n hw.logicalcpu) check || { brew services stop postgresql@${PG}; exit 1; }
       brew services stop postgresql@${PG}
 
