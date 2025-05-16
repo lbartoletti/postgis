@@ -193,10 +193,6 @@ dnl
 dnl define _USE_MATH_DEFINES for Windows
 dnl
 AC_DEFINE([_USE_MATH_DEFINES], [], [Define to use math constants in MSVC])
-dnl
-dnl define _GNU_SOURCE for Windows
-dnl
-AC_DEFINE([_GNU_SOURCE], [], [Define to use math constants on Linux])
 
 AC_PATH_PROG([CODESPELL], [codespell], [])
 if test "x$CODESPELL" = "x"; then
