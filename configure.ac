@@ -83,7 +83,7 @@ AC_SUBST([PICFLAGS])
 
 _LT_COMPILER_OPTION([if $compiler supports -fno-math-errno], [_cv_nomatherrno], [-fno-math-errno], [], [CFLAGS="$CFLAGS -fno-math-errno"], [])
 _LT_COMPILER_OPTION([if $compiler supports -fno-signed-zeros], [_cv_nosignedzeros], [-fno-signed-zeros], [], [CFLAGS="$CFLAGS -fno-signed-zeros"], [])
-_LT_COMPILER_OPTION([if $compiler supports -std=gnu11], [_cv_std], -std=gnu11, [], [CFLAGS="-std=gnu11 $CFLAGS"], [])
+_LT_COMPILER_OPTION([if $compiler supports -std=c11], [_cv_std], -std=c11, [], [CFLAGS="-std=c11 $CFLAGS"], [])
 
 
 dnl
@@ -185,6 +185,11 @@ case $host_os in
                  ;;
 esac
 AC_SUBST([MINGWBUILD])
+
+dnl
+dnl define _USE_MATH_DEFINES for Windows
+dnl
+AC_DEFINE([_USE_MATH_DEFINES], [], [Define to use math constants in MSVC])
 
 AC_PATH_PROG([CODESPELL], [codespell], [])
 if test "x$CODESPELL" = "x"; then
