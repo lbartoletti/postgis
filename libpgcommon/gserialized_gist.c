@@ -9,6 +9,11 @@
  **********************************************************************/
 
 
+/* Standard C library includes */
+#include <string.h>  /* For standard string functions */
+#include <setjmp.h>  /* For sigjmp_buf type */
+#include <signal.h>  /* For signal handling functions */
+
 #include "postgres.h"
 #include "access/gist.h"    /* For GiST */
 #include "access/itup.h"
