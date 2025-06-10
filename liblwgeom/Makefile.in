@@ -122,6 +122,7 @@ SA_OBJS = \
 	lwgeom_geos_cluster.o \
 	lwgeom_geos_node.o \
 	lwgeom_geos_split.o \
+	lwgeom_nurbs.o \
 	topo/lwgeom_topo.o \
 	topo/lwgeom_topo_polygonizer.o \
 	topo/lwt_edgeend.o \
@@ -159,6 +160,7 @@ SA_HEADERS = \
 	liblwgeom_internal.h \
 	lwgeodetic.h \
 	lwgeodetic_tree.h \
+	lwgeom_nurbs.h \
 	topo/liblwgeom_topo.h \
 	topo/liblwgeom_topo_internal.h \
 	topo/lwt_edgeend.h \

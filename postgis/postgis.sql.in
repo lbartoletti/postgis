@@ -6981,4 +6981,333 @@ AS 'MODULE_PATHNAME','ST_RemoveSmallParts'
 LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE
 	_COST_MEDIUM;
 
+
+-----------------------------------------------------------------------
+-- NURBS
+-----------------------------------------------------------------------
+-- Availability: 3.7.0
+
+-----------------------------------------------------------------------
+-- NURBS and Bezier Curve Functions
+-----------------------------------------------------------------------
+
+-- Create Bezier curve from array of control points
+CREATE OR REPLACE FUNCTION ST_BezierCurve(geometry[])
+RETURNS geometry
+AS 'MODULE_PATHNAME', 'ST_BezierCurve'
+LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE;
+
+-- Create NURBS curve from control points, weights, and knots
+CREATE OR REPLACE FUNCTION ST_NurbsCurve(geometry[], float8[], float8[])
+RETURNS geometry
+AS 'MODULE_PATHNAME', 'ST_NurbsCurve'
+LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE;
+
+-- Evaluate point on curve at parameter t (0.0 to 1.0)
+CREATE OR REPLACE FUNCTION ST_CurvePoint(geometry, float8)
+RETURNS geometry
+AS 'MODULE_PATHNAME', 'ST_CurvePoint'
+LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE;
+
+-- Convert curve to linestring with specified number of segments
+CREATE OR REPLACE FUNCTION ST_CurveToLinestring(geometry, integer)
+RETURNS geometry
+AS 'MODULE_PATHNAME', 'ST_CurveToLinestring'
+LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE;
+
+-- Convert curve to linestring with default 32 segments
+CREATE OR REPLACE FUNCTION ST_CurveToLinestring(geometry)
+RETURNS geometry
+AS $$ SELECT ST_CurveToLinestring($1, 32) $$
+LANGUAGE 'sql' IMMUTABLE STRICT PARALLEL SAFE;
+
+-- Validate curve geometry
+CREATE OR REPLACE FUNCTION ST_IsValidCurve(geometry)
+RETURNS boolean
+AS 'MODULE_PATHNAME', 'ST_IsValidCurve'
+LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE;
+
+-- Calculate curve length with specified precision
+CREATE OR REPLACE FUNCTION ST_CurveLength(geometry, integer)
+RETURNS float8
+AS 'MODULE_PATHNAME', 'ST_CurveLength'
+LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE;
+
+-- Calculate curve length with default precision
+CREATE OR REPLACE FUNCTION ST_CurveLength(geometry)
+RETURNS float8
+AS $$ SELECT ST_CurveLength($1, 100) $$
+LANGUAGE 'sql' IMMUTABLE STRICT PARALLEL SAFE;
+
+-----------------------------------------------------------------------
+-- Helper Functions for Common Curve Types
+-----------------------------------------------------------------------
+
+-- Create quadratic Bezier curve from three control points
+CREATE OR REPLACE FUNCTION ST_BezierQuadratic(geometry, geometry, geometry)
+RETURNS geometry
+AS $$
+    SELECT ST_BezierCurve(ARRAY[$1, $2, $3])
+$$
+LANGUAGE 'sql' IMMUTABLE STRICT PARALLEL SAFE;
+
+-- Create cubic Bezier curve from four control points
+CREATE OR REPLACE FUNCTION ST_BezierCubic(geometry, geometry, geometry, geometry)
+RETURNS geometry
+AS $$
+    SELECT ST_BezierCurve(ARRAY[$1, $2, $3, $4])
+$$
+LANGUAGE 'sql' IMMUTABLE STRICT PARALLEL SAFE;
+
+-- Create uniform NURBS curve (equal weights, uniform knot spacing)
+CREATE OR REPLACE FUNCTION ST_UniformNurbs(integer, geometry[])
+RETURNS geometry
+AS $$
+DECLARE
+    degree integer := $1;
+    points geometry[] := $2;
+    num_points integer;
+    num_knots integer;
+    weights float8[];
+    knots float8[];
+    i integer;
+    step float8;
+    internal_knots integer;
+BEGIN
+    num_points := array_length(points, 1);
+
+    -- Validate input
+    IF degree < 1 THEN
+        RAISE EXCEPTION 'Degree must be at least 1';
+    END IF;
+
+    IF num_points < degree + 1 THEN
+        RAISE EXCEPTION 'Need at least % control points for degree %', degree + 1, degree;
+    END IF;
+
+    -- Create uniform weights (all 1.0)
+    FOR i IN 1..num_points LOOP
+        weights[i] := 1.0;
+    END LOOP;
+
+    -- Create uniform clamped knot vector
+    num_knots := num_points + degree + 1;
+    internal_knots := num_knots - 2 * (degree + 1);
+
+    -- Clamp at start (degree+1 zeros)
+    FOR i IN 1..degree+1 LOOP
+        knots[i] := 0.0;
+    END LOOP;
+
+    -- Internal knots uniformly spaced
+    IF internal_knots > 0 THEN
+        step := 1.0 / (internal_knots + 1);
+        FOR i IN 1..internal_knots LOOP
+            knots[degree + 1 + i] := i * step;
+        END LOOP;
+    END IF;
+
+    -- Clamp at end (degree+1 ones)
+    FOR i IN 1..degree+1 LOOP
+        knots[num_knots - degree - 1 + i] := 1.0;
+    END LOOP;
+
+    RETURN ST_NurbsCurve(points, weights, knots);
+END;
+$$
+LANGUAGE 'plpgsql' IMMUTABLE STRICT PARALLEL SAFE;
+
+-- Create NURBS circle approximation
+CREATE OR REPLACE FUNCTION ST_NurbsCircle(geometry, float8)
+RETURNS geometry
+AS $$
+DECLARE
+    center geometry := $1;
+    radius float8 := $2;
+    cx float8 := ST_X(center);
+    cy float8 := ST_Y(center);
+    w float8 := sqrt(2.0) / 2.0;  -- Weight for rational circle
+    points geometry[];
+    weights float8[];
+    knots float8[];
+BEGIN
+    -- 9 control points for full circle
+    points := ARRAY[
+        ST_MakePoint(cx + radius, cy),           -- 0°
+        ST_MakePoint(cx + radius, cy + radius),  -- 45°
+        ST_MakePoint(cx, cy + radius),           -- 90°
+        ST_MakePoint(cx - radius, cy + radius),  -- 135°
+        ST_MakePoint(cx - radius, cy),           -- 180°
+        ST_MakePoint(cx - radius, cy - radius),  -- 225°
+        ST_MakePoint(cx, cy - radius),           -- 270°
+        ST_MakePoint(cx + radius, cy - radius),  -- 315°
+        ST_MakePoint(cx + radius, cy)            -- 360° (same as 0°)
+    ];
+
+    -- Weights for rational circle (alternating 1.0 and w)
+    weights := ARRAY[1.0, w, 1.0, w, 1.0, w, 1.0, w, 1.0];
+
+    -- Knot vector for quadratic rational circle
+    knots := ARRAY[0, 0, 0, 0.25, 0.25, 0.5, 0.5, 0.75, 0.75, 1, 1, 1];
+
+    RETURN ST_NurbsCurve(points, weights, knots);
+END;
+$$
+LANGUAGE 'plpgsql' IMMUTABLE STRICT PARALLEL SAFE;
+
+-- Create rational Bezier curve with custom weights
+CREATE OR REPLACE FUNCTION ST_BezierRational(geometry[], float8[])
+RETURNS geometry
+AS $$
+DECLARE
+    points geometry[] := $1;
+    weights float8[] := $2;
+    num_points integer;
+    degree integer;
+    knots float8[];
+    i integer;
+BEGIN
+    num_points := array_length(points, 1);
+
+    -- Validate input
+    IF num_points < 2 THEN
+        RAISE EXCEPTION 'Need at least 2 control points';
+    END IF;
+
+    IF array_length(weights, 1) != num_points THEN
+        RAISE EXCEPTION 'Number of weights must match number of points';
+    END IF;
+
+    -- Check weights are positive
+    FOR i IN 1..num_points LOOP
+        IF weights[i] <= 0 THEN
+            RAISE EXCEPTION 'All weights must be positive';
+        END IF;
+    END LOOP;
+
+    degree := num_points - 1;
+
+    -- Create Bezier knot vector (all 0s and 1s)
+    FOR i IN 1..degree+1 LOOP
+        knots[i] := 0.0;
+        knots[num_points + i] := 1.0;
+    END LOOP;
+
+    RETURN ST_NurbsCurve(points, weights, knots);
+END;
+$$
+LANGUAGE 'plpgsql' IMMUTABLE STRICT PARALLEL SAFE;
+
+-- Generate spline from series of connected Bezier curves
+CREATE OR REPLACE FUNCTION ST_BezierSpline(geometry[])
+RETURNS geometry
+AS $$
+DECLARE
+    control_points geometry[] := $1;
+    num_points integer;
+    result geometry;
+    segment geometry;
+    i integer;
+BEGIN
+    num_points := array_length(control_points, 1);
+
+    -- Need at least 4 points for cubic Bezier segments
+    IF num_points < 4 THEN
+        RAISE EXCEPTION 'Bezier spline requires at least 4 control points';
+    END IF;
+
+    -- Create first cubic Bezier segment
+    result := ST_CurveToLinestring(
+        ST_BezierCubic(
+            control_points[1],
+            control_points[2],
+            control_points[3],
+            control_points[4]
+        ), 32
+    );
+
+    -- Add subsequent segments (sharing endpoints)
+    i := 5;
+    WHILE i + 2 <= num_points LOOP
+        segment := ST_CurveToLinestring(
+            ST_BezierCubic(
+                control_points[i-1],  -- Shared endpoint
+                control_points[i],
+                control_points[i+1],
+                control_points[i+2]
+            ), 32
+        );
+
+        -- Merge segments
+        result := ST_LineMerge(ST_Union(result, segment));
+
+        i := i + 3;
+    END LOOP;
+
+    RETURN result;
+END;
+$$
+LANGUAGE 'plpgsql' IMMUTABLE STRICT PARALLEL SAFE;
+
+-----------------------------------------------------------------------
+-- Utility and Analysis Functions
+-----------------------------------------------------------------------
+
+-- Get approximate envelope of a curve
+CREATE OR REPLACE FUNCTION ST_CurveEnvelope(geometry)
+RETURNS geometry
+AS $$
+    SELECT ST_Envelope(ST_CurveToLinestring($1, 64))
+$$
+LANGUAGE 'sql' IMMUTABLE STRICT PARALLEL SAFE;
+
+-- Test if point is within distance of curve
+CREATE OR REPLACE FUNCTION ST_CurveDWithin(geometry, geometry, float8)
+RETURNS boolean
+AS $$
+    SELECT ST_DWithin(ST_CurveToLinestring($1, 64), $2, $3)
+$$
+LANGUAGE 'sql' IMMUTABLE STRICT PARALLEL SAFE;
+
+-- Test if point is within distance of curve with custom precision
+CREATE OR REPLACE FUNCTION ST_CurveDWithin(geometry, geometry, float8, integer)
+RETURNS boolean
+AS $$
+    SELECT ST_DWithin(ST_CurveToLinestring($1, $4), $2, $3)
+$$
+LANGUAGE 'sql' IMMUTABLE STRICT PARALLEL SAFE;
+
+-- Get curve centroid (approximation)
+CREATE OR REPLACE FUNCTION ST_CurveCentroid(geometry)
+RETURNS geometry
+AS $$
+    SELECT ST_Centroid(ST_CurveToLinestring($1, 64))
+$$
+LANGUAGE 'sql' IMMUTABLE STRICT PARALLEL SAFE;
+
+-----------------------------------------------------------------------
+-- Comments and Documentation
+-----------------------------------------------------------------------
+
+COMMENT ON FUNCTION ST_BezierCurve(geometry[]) IS 'Create Bezier curve from array of control points';
+COMMENT ON FUNCTION ST_NurbsCurve(geometry[], float8[], float8[]) IS 'Create NURBS curve from control points, weights, and knot vector';
+COMMENT ON FUNCTION ST_CurvePoint(geometry, float8) IS 'Evaluate point on parametric curve at parameter t (0.0 to 1.0)';
+COMMENT ON FUNCTION ST_CurveToLinestring(geometry, integer) IS 'Convert parametric curve to linestring with specified number of segments';
+COMMENT ON FUNCTION ST_CurveToLinestring(geometry) IS 'Convert parametric curve to linestring with 32 segments';
+COMMENT ON FUNCTION ST_IsValidCurve(geometry) IS 'Test if geometry represents a valid parametric curve';
+COMMENT ON FUNCTION ST_CurveLength(geometry, integer) IS 'Calculate length of parametric curve with specified precision';
+COMMENT ON FUNCTION ST_CurveLength(geometry) IS 'Calculate length of parametric curve with default precision';
+
+COMMENT ON FUNCTION ST_BezierQuadratic(geometry, geometry, geometry) IS 'Create quadratic Bezier curve from 3 control points';
+COMMENT ON FUNCTION ST_BezierCubic(geometry, geometry, geometry, geometry) IS 'Create cubic Bezier curve from 4 control points';
+COMMENT ON FUNCTION ST_UniformNurbs(integer, geometry[]) IS 'Create NURBS curve with uniform knot spacing and equal weights';
+COMMENT ON FUNCTION ST_NurbsCircle(geometry, float8) IS 'Create circle approximation using rational NURBS';
+COMMENT ON FUNCTION ST_BezierRational(geometry[], float8[]) IS 'Create rational Bezier curve with custom weights';
+COMMENT ON FUNCTION ST_BezierSpline(geometry[]) IS 'Create spline from connected Bezier curve segments';
+
+COMMENT ON FUNCTION ST_CurveEnvelope(geometry) IS 'Get approximate bounding box of parametric curve';
+COMMENT ON FUNCTION ST_CurveDWithin(geometry, geometry, float8) IS 'Test if point is within distance of parametric curve';
+COMMENT ON FUNCTION ST_CurveDWithin(geometry, geometry, float8, integer) IS 'Test if point is within distance of parametric curve with custom precision';
+COMMENT ON FUNCTION ST_CurveCentroid(geometry) IS 'Get approximate centroid of parametric curve';
+
 COMMIT;
