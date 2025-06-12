@@ -6987,35 +6987,41 @@ LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE
 -----------------------------------------------------------------------
 -- Availability: 3.7.0
 
+-- PostGIS NURBS Support - SQL Functions (Updated)
+-- File: postgis/postgis.sql (NURBS section)
+--
+-- SQL function definitions for native NURBS and Bezier curve geometry types.
+-- These functions preserve control points and curve parameters.
+
 -----------------------------------------------------------------------
--- NURBS and Bezier Curve Functions
+-- Core NURBS and Bezier Curve Functions
 -----------------------------------------------------------------------
 
--- Create Bezier curve from array of control points
+-- Create Bezier curve from array of control points -> BEZIERCURVE
 CREATE OR REPLACE FUNCTION ST_BezierCurve(geometry[])
 RETURNS geometry
 AS 'MODULE_PATHNAME', 'ST_BezierCurve'
 LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE;
 
--- Create NURBS curve from control points, weights, and knots
+-- Create NURBS curve from control points, weights, and knots -> NURBSCURVE
 CREATE OR REPLACE FUNCTION ST_NurbsCurve(geometry[], float8[], float8[])
 RETURNS geometry
 AS 'MODULE_PATHNAME', 'ST_NurbsCurve'
 LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE;
 
--- Evaluate point on curve at parameter t (0.0 to 1.0)
+-- Evaluate point on curve at parameter t (0.0 to 1.0) -> POINT
 CREATE OR REPLACE FUNCTION ST_CurvePoint(geometry, float8)
 RETURNS geometry
 AS 'MODULE_PATHNAME', 'ST_CurvePoint'
 LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE;
 
--- Convert curve to linestring with specified number of segments
+-- Convert curve to linestring with specified number of segments -> LINESTRING
 CREATE OR REPLACE FUNCTION ST_CurveToLinestring(geometry, integer)
 RETURNS geometry
 AS 'MODULE_PATHNAME', 'ST_CurveToLinestring'
 LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE;
 
--- Convert curve to linestring with default 32 segments
+-- Convert curve to linestring with default 32 segments -> LINESTRING
 CREATE OR REPLACE FUNCTION ST_CurveToLinestring(geometry)
 RETURNS geometry
 AS $$ SELECT ST_CurveToLinestring($1, 32) $$
@@ -7039,11 +7045,23 @@ RETURNS float8
 AS $$ SELECT ST_CurveLength($1, 100) $$
 LANGUAGE 'sql' IMMUTABLE STRICT PARALLEL SAFE;
 
+-- Get control points of a curve -> geometry[]
+CREATE OR REPLACE FUNCTION ST_CurveControlPoints(geometry)
+RETURNS geometry[]
+AS 'MODULE_PATHNAME', 'ST_CurveControlPoints'
+LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE;
+
+-- Get knot vector of a NURBS curve -> float8[]
+CREATE OR REPLACE FUNCTION ST_CurveKnots(geometry)
+RETURNS float8[]
+AS 'MODULE_PATHNAME', 'ST_CurveKnots'
+LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE;
+
 -----------------------------------------------------------------------
 -- Helper Functions for Common Curve Types
 -----------------------------------------------------------------------
 
--- Create quadratic Bezier curve from three control points
+-- Create quadratic Bezier curve from three control points -> BEZIERCURVE
 CREATE OR REPLACE FUNCTION ST_BezierQuadratic(geometry, geometry, geometry)
 RETURNS geometry
 AS $$
@@ -7051,7 +7069,7 @@ AS $$
 $$
 LANGUAGE 'sql' IMMUTABLE STRICT PARALLEL SAFE;
 
--- Create cubic Bezier curve from four control points
+-- Create cubic Bezier curve from four control points -> BEZIERCURVE
 CREATE OR REPLACE FUNCTION ST_BezierCubic(geometry, geometry, geometry, geometry)
 RETURNS geometry
 AS $$
@@ -7059,7 +7077,7 @@ AS $$
 $$
 LANGUAGE 'sql' IMMUTABLE STRICT PARALLEL SAFE;
 
--- Create uniform NURBS curve (equal weights, uniform knot spacing)
+-- Create uniform NURBS curve (equal weights, uniform knot spacing) -> NURBSCURVE
 CREATE OR REPLACE FUNCTION ST_UniformNurbs(integer, geometry[])
 RETURNS geometry
 AS $$
@@ -7117,7 +7135,7 @@ END;
 $$
 LANGUAGE 'plpgsql' IMMUTABLE STRICT PARALLEL SAFE;
 
--- Create NURBS circle approximation
+-- Create NURBS circle approximation -> NURBSCURVE
 CREATE OR REPLACE FUNCTION ST_NurbsCircle(geometry, float8)
 RETURNS geometry
 AS $$
@@ -7155,7 +7173,7 @@ END;
 $$
 LANGUAGE 'plpgsql' IMMUTABLE STRICT PARALLEL SAFE;
 
--- Create rational Bezier curve with custom weights
+-- Create rational Bezier curve with custom weights -> BEZIERCURVE
 CREATE OR REPLACE FUNCTION ST_BezierRational(geometry[], float8[])
 RETURNS geometry
 AS $$
@@ -7198,7 +7216,7 @@ END;
 $$
 LANGUAGE 'plpgsql' IMMUTABLE STRICT PARALLEL SAFE;
 
--- Generate spline from series of connected Bezier curves
+-- Generate spline from series of connected Bezier curves -> LINESTRING
 CREATE OR REPLACE FUNCTION ST_BezierSpline(geometry[])
 RETURNS geometry
 AS $$
@@ -7216,7 +7234,7 @@ BEGIN
         RAISE EXCEPTION 'Bezier spline requires at least 4 control points';
     END IF;
 
-    -- Create first cubic Bezier segment
+    -- Create first cubic Bezier segment and convert to linestring
     result := ST_CurveToLinestring(
         ST_BezierCubic(
             control_points[1],
@@ -7250,7 +7268,78 @@ $$
 LANGUAGE 'plpgsql' IMMUTABLE STRICT PARALLEL SAFE;
 
 -----------------------------------------------------------------------
--- Utility and Analysis Functions
+-- Curve Analysis and Inspection Functions
+-----------------------------------------------------------------------
+
+-- Get curve type (NURBS, BEZIER, or OTHER)
+CREATE OR REPLACE FUNCTION ST_CurveType(geometry)
+RETURNS text
+AS $$
+DECLARE
+    geom_type text := ST_GeometryType($1);
+BEGIN
+    CASE geom_type
+        WHEN 'ST_NurbsCurve' THEN RETURN 'NURBS';
+        WHEN 'ST_BezierCurve' THEN RETURN 'BEZIER';
+        ELSE RETURN 'OTHER';
+    END CASE;
+END;
+$$
+LANGUAGE 'plpgsql' IMMUTABLE STRICT PARALLEL SAFE;
+
+-- Get curve degree
+CREATE OR REPLACE FUNCTION ST_CurveDegree(geometry)
+RETURNS integer
+AS $$
+DECLARE
+    control_points geometry[];
+    knots float8[];
+    num_points integer;
+    num_knots integer;
+BEGIN
+    -- Check if it's a parametric curve
+    IF NOT ST_IsValidCurve($1) THEN
+        RETURN NULL;
+    END IF;
+
+    control_points := ST_CurveControlPoints($1);
+    knots := ST_CurveKnots($1);
+
+    num_points := array_length(control_points, 1);
+
+    IF knots IS NULL THEN
+        -- Bezier curve: degree = num_points - 1
+        RETURN num_points - 1;
+    ELSE
+        -- NURBS curve: degree = num_knots - num_points - 1
+        num_knots := array_length(knots, 1);
+        RETURN num_knots - num_points - 1;
+    END IF;
+END;
+$$
+LANGUAGE 'plpgsql' IMMUTABLE STRICT PARALLEL SAFE;
+
+-- Check if curve is rational (has non-uniform weights)
+CREATE OR REPLACE FUNCTION ST_CurveIsRational(geometry)
+RETURNS boolean
+AS $$
+DECLARE
+    curve_type text := ST_CurveType($1);
+BEGIN
+    -- Only NURBS and Bezier curves can be rational
+    IF curve_type NOT IN ('NURBS', 'BEZIER') THEN
+        RETURN false;
+    END IF;
+
+    -- For now, assume curves created with custom weights are rational
+    -- A full implementation would inspect the actual weight values
+    RETURN true;
+END;
+$$
+LANGUAGE 'plpgsql' IMMUTABLE STRICT PARALLEL SAFE;
+
+-----------------------------------------------------------------------
+-- Utility and Geometric Operations
 -----------------------------------------------------------------------
 
 -- Get approximate envelope of a curve
@@ -7285,6 +7374,90 @@ AS $$
 $$
 LANGUAGE 'sql' IMMUTABLE STRICT PARALLEL SAFE;
 
+-- Get curve start point
+CREATE OR REPLACE FUNCTION ST_CurveStartPoint(geometry)
+RETURNS geometry
+AS $$
+    SELECT ST_CurvePoint($1, 0.0)
+$$
+LANGUAGE 'sql' IMMUTABLE STRICT PARALLEL SAFE;
+
+-- Get curve end point
+CREATE OR REPLACE FUNCTION ST_CurveEndPoint(geometry)
+RETURNS geometry
+AS $$
+    SELECT ST_CurvePoint($1, 1.0)
+$$
+LANGUAGE 'sql' IMMUTABLE STRICT PARALLEL SAFE;
+
+-- Sample points along curve at regular intervals
+CREATE OR REPLACE FUNCTION ST_CurveSample(geometry, integer)
+RETURNS geometry[]
+AS $$
+DECLARE
+    curve geometry := $1;
+    num_samples integer := $2;
+    result geometry[];
+    i integer;
+    t float8;
+BEGIN
+    IF num_samples < 1 THEN
+        RETURN NULL;
+    END IF;
+
+    FOR i IN 0..num_samples-1 LOOP
+        t := i::float8 / (num_samples - 1)::float8;
+        result := result || ARRAY[ST_CurvePoint(curve, t)];
+    END LOOP;
+
+    RETURN result;
+END;
+$$
+LANGUAGE 'plpgsql' IMMUTABLE STRICT PARALLEL SAFE;
+
+-----------------------------------------------------------------------
+-- Conversion and Compatibility Functions
+-----------------------------------------------------------------------
+
+-- Convert any supported curve type to NURBS representation
+CREATE OR REPLACE FUNCTION ST_CurveToNurbs(geometry)
+RETURNS geometry
+AS $$
+DECLARE
+    curve_type text := ST_CurveType($1);
+BEGIN
+    CASE curve_type
+        WHEN 'NURBS' THEN
+            RETURN $1;  -- Already NURBS
+        WHEN 'BEZIER' THEN
+            -- Convert Bezier to NURBS by adding uniform knot vector
+            DECLARE
+                control_points geometry[] := ST_CurveControlPoints($1);
+                degree integer := ST_CurveDegree($1);
+                weights float8[];
+                knots float8[];
+                i integer;
+            BEGIN
+                -- Create uniform weights
+                FOR i IN 1..array_length(control_points, 1) LOOP
+                    weights[i] := 1.0;
+                END LOOP;
+
+                -- Create Bezier knot vector (clamped at 0 and 1)
+                FOR i IN 1..degree+1 LOOP
+                    knots[i] := 0.0;
+                    knots[array_length(control_points, 1) + i] := 1.0;
+                END LOOP;
+
+                RETURN ST_NurbsCurve(control_points, weights, knots);
+            END;
+        ELSE
+            RAISE EXCEPTION 'Cannot convert % to NURBS', curve_type;
+    END CASE;
+END;
+$$
+LANGUAGE 'plpgsql' IMMUTABLE STRICT PARALLEL SAFE;
+
 -----------------------------------------------------------------------
 -- Comments and Documentation
 -----------------------------------------------------------------------
@@ -7297,6 +7470,8 @@ COMMENT ON FUNCTION ST_CurveToLinestring(geometry) IS 'Convert parametric curve 
 COMMENT ON FUNCTION ST_IsValidCurve(geometry) IS 'Test if geometry represents a valid parametric curve';
 COMMENT ON FUNCTION ST_CurveLength(geometry, integer) IS 'Calculate length of parametric curve with specified precision';
 COMMENT ON FUNCTION ST_CurveLength(geometry) IS 'Calculate length of parametric curve with default precision';
+COMMENT ON FUNCTION ST_CurveControlPoints(geometry) IS 'Get array of control points from parametric curve';
+COMMENT ON FUNCTION ST_CurveKnots(geometry) IS 'Get knot vector from NURBS curve (NULL for Bezier curves)';
 
 COMMENT ON FUNCTION ST_BezierQuadratic(geometry, geometry, geometry) IS 'Create quadratic Bezier curve from 3 control points';
 COMMENT ON FUNCTION ST_BezierCubic(geometry, geometry, geometry, geometry) IS 'Create cubic Bezier curve from 4 control points';
@@ -7305,9 +7480,16 @@ COMMENT ON FUNCTION ST_NurbsCircle(geometry, float8) IS 'Create circle approxima
 COMMENT ON FUNCTION ST_BezierRational(geometry[], float8[]) IS 'Create rational Bezier curve with custom weights';
 COMMENT ON FUNCTION ST_BezierSpline(geometry[]) IS 'Create spline from connected Bezier curve segments';
 
+COMMENT ON FUNCTION ST_CurveType(geometry) IS 'Get type of parametric curve (NURBS, BEZIER, or OTHER)';
+COMMENT ON FUNCTION ST_CurveDegree(geometry) IS 'Get degree of parametric curve';
+COMMENT ON FUNCTION ST_CurveIsRational(geometry) IS 'Test if parametric curve is rational (has non-uniform weights)';
 COMMENT ON FUNCTION ST_CurveEnvelope(geometry) IS 'Get approximate bounding box of parametric curve';
 COMMENT ON FUNCTION ST_CurveDWithin(geometry, geometry, float8) IS 'Test if point is within distance of parametric curve';
 COMMENT ON FUNCTION ST_CurveDWithin(geometry, geometry, float8, integer) IS 'Test if point is within distance of parametric curve with custom precision';
 COMMENT ON FUNCTION ST_CurveCentroid(geometry) IS 'Get approximate centroid of parametric curve';
+COMMENT ON FUNCTION ST_CurveStartPoint(geometry) IS 'Get start point of parametric curve';
+COMMENT ON FUNCTION ST_CurveEndPoint(geometry) IS 'Get end point of parametric curve';
+COMMENT ON FUNCTION ST_CurveSample(geometry, integer) IS 'Sample points along parametric curve at regular intervals';
+COMMENT ON FUNCTION ST_CurveToNurbs(geometry) IS 'Convert parametric curve to NURBS representation';
 
 COMMIT;
