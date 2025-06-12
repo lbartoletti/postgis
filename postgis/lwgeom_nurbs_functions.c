@@ -1,6 +1,6 @@
 /*
  * PostGIS NURBS Support - PostgreSQL Functions (Updated)
- * File: liblwgeom/lwgeom_nurbs_functions.c
+ * File: postgis/lwgeom_nurbs_functions.c
  *
  * PostgreSQL interface functions that return native NURBS/Bezier geometry types.
  * Preserves control points and curve parameters for SQL/MM compliance.
