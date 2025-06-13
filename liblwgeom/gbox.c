@@ -777,6 +777,14 @@ int lwgeom_calculate_gbox_cartesian(const LWGEOM *lwgeom, GBOX *gbox)
 	case TINTYPE:
 	case COLLECTIONTYPE:
 		return lwcollection_calculate_gbox_cartesian((LWCOLLECTION *)lwgeom, gbox);
+	case NURBSCURVETYPE:
+	{
+		LWNURBSCURVE *nurbs = (LWNURBSCURVE*)lwgeom;
+		if (nurbs->points && nurbs->points->npoints > 0)
+			return ptarray_calculate_gbox_cartesian(nurbs->points, gbox);
+		else
+			return LW_FAILURE;
+	}
 	}
 	/* Never get here, please. */
 	lwerror("unsupported type (%d) - %s", lwgeom->type, lwtype_name(lwgeom->type));

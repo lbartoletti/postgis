@@ -725,7 +725,9 @@ lwgeom_to_wkb_size(const LWGEOM *geom, uint8_t variant)
 		case TINTYPE:
 			size += lwcollection_to_wkb_size((LWCOLLECTION*)geom, variant);
 			break;
-
+		case NURBSCURVETYPE:
+			size += lwline_to_wkb_size((LWLINE*)geom, variant);
+			break;
 		/* Unknown type! */
 		default:
 			lwerror("%s: Unsupported geometry type: %s", __func__, lwtype_name(geom->type));
@@ -773,6 +775,8 @@ static uint8_t* lwgeom_to_wkb_buf(const LWGEOM *geom, uint8_t *buf, uint8_t vari
 		case POLYHEDRALSURFACETYPE:
 		case TINTYPE:
 			return lwcollection_to_wkb_buf((LWCOLLECTION*)geom, buf, variant);
+		case NURBSCURVETYPE:
+			return lwline_to_wkb_buf((LWLINE*)geom, buf, variant);
 
 		/* Unknown type! */
 		default:
