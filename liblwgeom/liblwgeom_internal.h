@@ -503,4 +503,8 @@ POINT4D* lwmpoint_extract_points_4d(const LWMPOINT* g, uint32_t* npoints, int* i
 char* lwstrdup(const char* a);
 void* lwalloc0(size_t sz);
 
+/* NURBS */
+LWLINE *lwnurbscurve_to_linestring(const LWNURBSCURVE *curve, uint32_t segments);
+
+
 #endif /* _LIBLWGEOM_INTERNAL_H */
