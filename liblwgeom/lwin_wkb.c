@@ -817,7 +817,10 @@ LWGEOM* lwgeom_from_wkb_state(wkb_parse_state *s)
 		case COLLECTIONTYPE:
 			return (LWGEOM*)lwcollection_from_wkb_state(s);
 			break;
-
+		case NURBSCURVETYPE:
+			/* NURBS curves are serialized as linestrings for WKB compatibility */
+			return (LWGEOM*)lwline_from_wkb_state(s);
+			break;
 		/* Unknown type! */
 		default:
 			lwerror("%s: Unsupported geometry type: %s", __func__, lwtype_name(s->lwtype));

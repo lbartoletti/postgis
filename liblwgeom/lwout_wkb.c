@@ -90,6 +90,7 @@ static uint32_t lwgeom_wkb_type(const LWGEOM *geom, uint8_t variant)
 		wkb_type = WKB_POINT_TYPE;
 		break;
 	case LINETYPE:
+	case NURBSCURVETYPE: // TODO add WKB_NURBSCURVE_TYPE
 		wkb_type = WKB_LINESTRING_TYPE;
 		break;
 	case POLYGONTYPE:
@@ -726,8 +727,13 @@ lwgeom_to_wkb_size(const LWGEOM *geom, uint8_t variant)
 			size += lwcollection_to_wkb_size((LWCOLLECTION*)geom, variant);
 			break;
 		case NURBSCURVETYPE:
-			size += lwline_to_wkb_size((LWLINE*)geom, variant);
-			break;
+			{
+				LWNURBSCURVE *nurbs = (LWNURBSCURVE*)geom;
+				LWLINE *line = lwnurbscurve_to_linestring(nurbs, 32);
+				size += lwline_to_wkb_size(line, variant);
+				lwline_free(line);
+				break;
+			}
 		/* Unknown type! */
 		default:
 			lwerror("%s: Unsupported geometry type: %s", __func__, lwtype_name(geom->type));
@@ -776,7 +782,13 @@ static uint8_t* lwgeom_to_wkb_buf(const LWGEOM *geom, uint8_t *buf, uint8_t vari
 		case TINTYPE:
 			return lwcollection_to_wkb_buf((LWCOLLECTION*)geom, buf, variant);
 		case NURBSCURVETYPE:
-			return lwline_to_wkb_buf((LWLINE*)geom, buf, variant);
+			{
+				LWNURBSCURVE *nurbs = (LWNURBSCURVE*)geom;
+				LWLINE *line = lwnurbscurve_to_linestring(nurbs, 32);
+				buf = lwline_to_wkb_buf(line, buf, variant);
+				lwline_free(line);
+				return buf;
+			}
 
 		/* Unknown type! */
 		default:
