@@ -358,6 +358,7 @@ POINTARRAY *ptarray_clone(const POINTARRAY *ptarray);
 LWLINE *lwline_clone_deep(const LWLINE *lwgeom);
 LWPOLY *lwpoly_clone_deep(const LWPOLY *lwgeom);
 LWCOLLECTION *lwcollection_clone_deep(const LWCOLLECTION *lwgeom);
+LWNURBSCURVE *lwnurbscurve_clone_deep(const LWNURBSCURVE *curve);
 GBOX *gbox_clone(const GBOX *gbox);
 
 /*

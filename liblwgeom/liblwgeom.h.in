@@ -114,8 +114,9 @@ const char* lwgeom_version(void);
 #define POLYHEDRALSURFACETYPE   13
 #define TRIANGLETYPE            14
 #define TINTYPE                 15
+#define NURBSCURVETYPE          16
 
-#define NUMTYPES                16
+#define NUMTYPES                17
 
 /**
 * Flags applied in EWKB to indicate Z/M dimensions and
@@ -666,6 +667,25 @@ typedef struct
 }
 LWTIN;
 
+/**
+* NURBS curve type
+*/
+typedef struct
+{
+	GBOX *bbox;
+	POINTARRAY *points;  /* Control points */
+	double *weights;     /* Weights (NULL for non-rational) */
+	double *knots;       /* Knot vector (NULL for Bezier) */
+	int32_t srid;
+	lwflags_t flags;
+	uint8_t type;        /* NURBSCURVETYPE */
+	char pad[1];
+	uint32_t degree;     /* Curve degree */
+	uint32_t nweights;   /* Number of weights */
+	uint32_t nknots;     /* Number of knots */
+}
+LWNURBSCURVE;
+
 /* Casts LWGEOM->LW* (return NULL if cast is illegal) */
 extern LWMPOLY *lwgeom_as_lwmpoly(const LWGEOM *lwgeom);
 extern LWMLINE *lwgeom_as_lwmline(const LWGEOM *lwgeom);
@@ -680,10 +700,12 @@ extern LWCOMPOUND *lwgeom_as_lwcompound(const LWGEOM *lwgeom);
 extern LWPSURFACE *lwgeom_as_lwpsurface(const LWGEOM *lwgeom);
 extern LWTRIANGLE *lwgeom_as_lwtriangle(const LWGEOM *lwgeom);
 extern LWTIN *lwgeom_as_lwtin(const LWGEOM *lwgeom);
+extern LWNURBSCURVE* lwgeom_as_lwnurbscurve(const LWGEOM *lwgeom);
 extern LWGEOM *lwgeom_as_multi(const LWGEOM *lwgeom);
 extern LWGEOM *lwgeom_as_curve(const LWGEOM *lwgeom);
 
 /* Casts LW*->LWGEOM (always cast) */
+extern LWGEOM* lwnurbscurve_as_lwgeom(const LWNURBSCURVE *obj);
 extern LWGEOM *lwtin_as_lwgeom(const LWTIN *obj);
 extern LWGEOM *lwtriangle_as_lwgeom(const LWTRIANGLE *obj);
 extern LWGEOM *lwpsurface_as_lwgeom(const LWPSURFACE *obj);
@@ -1283,6 +1305,7 @@ extern void lwpsurface_free(LWPSURFACE *psurf);
 extern void lwtin_free(LWTIN *tin);
 extern void lwcollection_free(LWCOLLECTION *col);
 extern void lwcircstring_free(LWCIRCSTRING *curve);
+extern void lwnurbscurve_free(LWNURBSCURVE *curve);
 extern void lwgeom_free(LWGEOM *geom);
 
 /*
@@ -1521,6 +1544,8 @@ extern LWPOLY* lwpoly_construct(int32_t srid, GBOX *bbox, uint32_t nrings, POINT
 extern LWCURVEPOLY* lwcurvepoly_construct(int32_t srid, GBOX *bbox, uint32_t nrings, LWGEOM **geoms);
 extern LWTRIANGLE* lwtriangle_construct(int32_t srid, GBOX *bbox, POINTARRAY *points);
 extern LWCOLLECTION* lwcollection_construct(uint8_t type, int32_t srid, GBOX *bbox, uint32_t ngeoms, LWGEOM **geoms);
+extern LWNURBSCURVE* lwnurbscurve_construct(int32_t srid, uint32_t degree, POINTARRAY *points, double *weights, double *knots, uint32_t nweights, uint32_t nknots);
+
 /*
 * Empty geometry constructors.
 */
@@ -1536,7 +1561,7 @@ extern LWMPOINT* lwmpoint_construct_empty(int32_t srid, char hasz, char hasm);
 extern LWMLINE* lwmline_construct_empty(int32_t srid, char hasz, char hasm);
 extern LWMPOLY* lwmpoly_construct_empty(int32_t srid, char hasz, char hasm);
 extern LWCOLLECTION* lwcollection_construct_empty(uint8_t type, int32_t srid, char hasz, char hasm);
-
+extern LWNURBSCURVE* lwnurbscurve_construct_empty(int32_t srid, char hasz, char hasm);
 
 /* Other constructors */
 extern LWPOINT *lwpoint_make2d(int32_t srid, double x, double y);
