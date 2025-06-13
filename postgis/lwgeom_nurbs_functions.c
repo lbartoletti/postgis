@@ -31,6 +31,7 @@
 
 #include "../postgis_config.h"
 #include "liblwgeom.h"
+#include "liblwgeom_internal.h"
 #include "lwgeom_pg.h"
 
 Datum ST_MakeNurbsCurve(PG_FUNCTION_ARGS);
@@ -77,15 +78,15 @@ Datum ST_MakeNurbsCurve(PG_FUNCTION_ARGS)
 		/* Extract points from linestring */
 		LWLINE *line = (LWLINE*)control_geom;
 		ctrl_pts = ptarray_clone_deep(line->points);
-		
+
 		nurbs = lwnurbscurve_construct(srid, degree, ctrl_pts, NULL, NULL, 0, 0);
 		lwgeom_free(control_geom);
-		
+
 		if (!nurbs) {
 			ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR),
 				errmsg("Failed to construct NURBS curve")));
 		}
-		
+
 		result = geometry_serialize((LWGEOM*)nurbs);
 		lwnurbscurve_free(nurbs);
 		PG_RETURN_POINTER(result);
@@ -183,18 +184,21 @@ Datum ST_MakeBezier(PG_FUNCTION_ARGS)
 	LWGEOM *control_geom;
 	LWLINE *line;
 	uint32_t degree;
-	
+
 	pcontrol_pts = PG_GETARG_GSERIALIZED_P(0);
 	control_geom = lwgeom_from_gserialized(pcontrol_pts);
-	
+
 	if (control_geom->type != LINETYPE) {
 		lwgeom_free(control_geom);
 		ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 			errmsg("Control points must be a LINESTRING")));
 	}
-	
+
 	line = (LWLINE*)control_geom;
 	degree = line->points->npoints - 1;
-	
+
 	/* Call ST_MakeNurbsCurve with appropriate degree */
-	PG_RETURN_DATUM(DirectFunctionCall2(ST_MakeNurbsCurve, 
+	PG_RETURN_DATUM(DirectFunctionCall2(ST_MakeNurbsCurve,
+	                                   Int32GetDatum(degree),
+	                                   PG_GETARG_DATUM(0)));
+}
