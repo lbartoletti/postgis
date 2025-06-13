@@ -1,502 +1,523 @@
-/*
- * PostGIS NURBS Support - PostgreSQL Functions (Updated)
- * File: postgis/lwgeom_nurbs_functions.c
+/**********************************************************************
  *
- * PostgreSQL interface functions that return native NURBS/Bezier geometry types.
- * Preserves control points and curve parameters for SQL/MM compliance.
+ * PostGIS - Spatial Types for PostgreSQL
+ * http://postgis.net
  *
- * Copyright (c) 2024 PostGIS contributors
- * License: GPL v2+
- */
+ * PostGIS is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * PostGIS is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with PostGIS.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ **********************************************************************
+ *
+ * Copyright (C) 2025 PostGIS contributors
+ *
+ **********************************************************************/
 
 #include "postgres.h"
 #include "fmgr.h"
+#include "funcapi.h"
 #include "utils/array.h"
 #include "utils/builtins.h"
+#include "catalog/pg_type.h"
+
+#include "../postgis_config.h"
+#include "liblwgeom.h"
 #include "lwgeom_pg.h"
 #include "lwgeom_nurbs.h"
 
-PG_FUNCTION_INFO_V1(ST_BezierCurve);
-PG_FUNCTION_INFO_V1(ST_NurbsCurve);
-PG_FUNCTION_INFO_V1(ST_CurvePoint);
-PG_FUNCTION_INFO_V1(ST_CurveToLinestring);
-PG_FUNCTION_INFO_V1(ST_IsValidCurve);
-PG_FUNCTION_INFO_V1(ST_CurveLength);
-PG_FUNCTION_INFO_V1(ST_CurveControlPoints);
-PG_FUNCTION_INFO_V1(ST_CurveKnots);
+Datum lwgeom_nurbs_make(PG_FUNCTION_ARGS);
+Datum lwgeom_nurbs_evaluate(PG_FUNCTION_ARGS);
+Datum lwgeom_nurbs_toline(PG_FUNCTION_ARGS);
+Datum lwgeom_nurbs_length(PG_FUNCTION_ARGS);
+Datum lwgeom_nurbs_startpoint(PG_FUNCTION_ARGS);
+Datum lwgeom_nurbs_endpoint(PG_FUNCTION_ARGS);
+Datum lwgeom_nurbs_isclosed(PG_FUNCTION_ARGS);
+Datum lwgeom_nurbs_isvalid(PG_FUNCTION_ARGS);
+Datum lwgeom_nurbs_degree(PG_FUNCTION_ARGS);
+Datum lwgeom_nurbs_npoints(PG_FUNCTION_ARGS);
 
-/*
- * Create a Bezier curve from control points
- * ST_BezierCurve(geometry[]) -> BEZIERCURVE
- */
-Datum ST_BezierCurve(PG_FUNCTION_ARGS)
-{
-    ArrayType *array;
-    Datum *elems;
-    bool *nulls;
-    int nelems;
-    GSERIALIZED *geom;
-    LWGEOM *lwgeom;
-    LWPOINT *lwpoint;
-    POINT4D *points;
-    POINTARRAY *pa;
-    LWBEZIERCURVE *curve;
-    uint32_t srid = 0;
-    uint8_t flags = 0;
-    int i;
-
-    if (PG_ARGISNULL(0))
-        PG_RETURN_NULL();
-
-    array = PG_GETARG_ARRAYTYPE_P(0);
-
-    /* Deconstruct array */
-    deconstruct_array(array, get_fn_expr_argtype(fcinfo->flinfo, 0),
-                     -1, false, 'd', &elems, &nulls, &nelems);
-
-    if (nelems < 2 || nelems > 10) {
-        ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-                       errmsg("Bezier curve requires 2-10 control points")));
-    }
-
-    /* Extract points */
-    points = lwalloc(nelems * sizeof(POINT4D));
-    for (i = 0; i < nelems; i++) {
-        if (nulls[i]) {
-            ereport(ERROR, (errcode(ERRCODE_NULL_VALUE_NOT_ALLOWED),
-                           errmsg("Control points cannot be null")));
-        }
-
-        geom = (GSERIALIZED *)DatumGetPointer(elems[i]);
-        lwgeom = lwgeom_from_gserialized(geom);
-
-        if (lwgeom->type != POINTTYPE) {
-            ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-                           errmsg("All elements must be points")));
-        }
-
-        lwpoint = (LWPOINT *)lwgeom;
-        if (i == 0) {
-            srid = lwgeom->srid;
-            flags = lwgeom->flags;
-        }
-
-        getPoint4d_p(lwpoint->point, 0, &points[i]);
-        lwgeom_free(lwgeom);
-    }
-
-    /* Create point array with weights (M coordinate) */
-    pa = lwnurbs_points_with_weights(points, NULL, nelems, flags);
-
-    /* Create Bezier curve */
-    curve = lwbeziercurve_construct(srid, FLAGS_SET_M(flags, 1), nelems - 1, pa);
-
-    /* Cleanup */
-    lwfree(points);
-    ptarray_free(pa);
-    pfree(elems);
-    pfree(nulls);
-
-    if (!curve) {
-        ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR),
-                       errmsg("Failed to create Bezier curve")));
-    }
-
-    /* Return as serialized geometry */
-    geom = geometry_serialize((LWGEOM *)curve);
-    PG_RETURN_POINTER(geom);
-}
-
-/*
+/**
+ * ST_MakeNurbsCurve(degree integer, control_points geometry, weights float8[], knots float8[])
  * Create a NURBS curve from control points, weights, and knots
- * ST_NurbsCurve(geometry[], float8[], float8[]) -> NURBSCURVE
  */
-Datum ST_NurbsCurve(PG_FUNCTION_ARGS)
+PG_FUNCTION_INFO_V1(lwgeom_nurbs_make);
+Datum lwgeom_nurbs_make(PG_FUNCTION_ARGS)
 {
-    ArrayType *points_array, *weights_array, *knots_array;
-    Datum *point_elems, *weight_elems, *knot_elems;
-    bool *point_nulls, *weight_nulls, *knot_nulls;
-    int npoints, nweights, nknots;
-    GSERIALIZED *geom;
-    LWGEOM *lwgeom;
-    LWPOINT *lwpoint;
-    POINT4D *points;
-    double *weights, *knots;
-    POINTARRAY *pa;
-    LWNURBSCURVE *curve;
-    uint32_t srid = 0;
-    uint8_t flags = 0;
-    uint32_t degree;
-    int i;
+	int32_t degree;
+	GSERIALIZED *pcontrol_pts;
+	ArrayType *weights_array = NULL;
+	ArrayType *knots_array = NULL;
+	LWGEOM *control_geom;
+	LWMPOINT *control_mpt = NULL;
+	POINTARRAY *ctrl_pts;
+	double *weights = NULL;
+	double *knots = NULL;
+	uint32_t nweights = 0, nknots = 0;
+	LWNURBSCURVE *nurbs;
+	GSERIALIZED *result;
+	int32_t srid;
 
-    if (PG_ARGISNULL(0) || PG_ARGISNULL(1) || PG_ARGISNULL(2))
-        PG_RETURN_NULL();
+	/* Get degree */
+	degree = PG_GETARG_INT32(0);
+	if (degree < NURBS_MIN_DEGREE || degree > NURBS_MAX_DEGREE)
+	{
+		ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+			errmsg("NURBS degree must be between %d and %d",
+			       NURBS_MIN_DEGREE, NURBS_MAX_DEGREE)));
+	}
 
-    points_array = PG_GETARG_ARRAYTYPE_P(0);
-    weights_array = PG_GETARG_ARRAYTYPE_P(1);
-    knots_array = PG_GETARG_ARRAYTYPE_P(2);
+	/* Get control points */
+	pcontrol_pts = PG_GETARG_GSERIALIZED_P(1);
+	control_geom = lwgeom_from_gserialized(pcontrol_pts);
+	srid = control_geom->srid;
 
-    /* Deconstruct arrays */
-    deconstruct_array(points_array, get_fn_expr_argtype(fcinfo->flinfo, 0),
-                     -1, false, 'd', &point_elems, &point_nulls, &npoints);
-    deconstruct_array(weights_array, FLOAT8OID,
-                     8, FLOAT8PASSBYVAL, 'd', &weight_elems, &weight_nulls, &nweights);
-    deconstruct_array(knots_array, FLOAT8OID,
-                     8, FLOAT8PASSBYVAL, 'd', &knot_elems, &knot_nulls, &nknots);
+	/* Convert to MULTIPOINT if necessary */
+	if (control_geom->type == POINTTYPE)
+	{
+		control_mpt = lwmpoint_construct_empty(srid,
+		                                     lwgeom_has_z(control_geom),
+		                                     lwgeom_has_m(control_geom));
+		lwmpoint_add_lwpoint(control_mpt, (LWPOINT*)control_geom);
+		control_geom = (LWGEOM*)control_mpt;
+	}
+	else if (control_geom->type == MULTIPOINTTYPE)
+	{
+		control_mpt = (LWMPOINT*)control_geom;
+	}
+	else
+	{
+		lwgeom_free(control_geom);
+		ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+			errmsg("Control points must be POINT or MULTIPOINT geometry")));
+	}
 
-    /* Validate array sizes */
-    if (npoints < 2) {
-        ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-                       errmsg("NURBS curve requires at least 2 control points")));
-    }
+	/* Extract point array from multipoint */
+	ctrl_pts = ptarray_construct_empty(lwgeom_has_z(control_geom),
+	                                  lwgeom_has_m(control_geom),
+	                                  control_mpt->ngeoms);
 
-    if (nweights != npoints) {
-        ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-                       errmsg("Number of weights must match number of points")));
-    }
+	for (uint32_t i = 0; i < control_mpt->ngeoms; i++)
+	{
+		POINT4D pt;
+		if (getPoint4d_p(control_mpt->geoms[i]->point, 0, &pt))
+		{
+			ptarray_append_point(ctrl_pts, &pt, LW_FALSE);
+		}
+	}
 
-    degree = nknots - npoints - 1;
-    if (degree < 1 || degree >= npoints) {
-        ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-                       errmsg("Invalid knot vector size for NURBS curve")));
-    }
+	if (ctrl_pts->npoints < NURBS_MIN_POINTS)
+	{
+		ptarray_free(ctrl_pts);
+		lwgeom_free(control_geom);
+		ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+			errmsg("NURBS curve requires at least %d control points", NURBS_MIN_POINTS)));
+	}
 
-    /* Extract points */
-    points = lwalloc(npoints * sizeof(POINT4D));
-    for (i = 0; i < npoints; i++) {
-        if (point_nulls[i]) {
-            ereport(ERROR, (errcode(ERRCODE_NULL_VALUE_NOT_ALLOWED),
-                           errmsg("Control points cannot be null")));
-        }
+	/* Get weights array if provided */
+	if (!PG_ARGISNULL(2))
+	{
+		weights_array = PG_GETARG_ARRAYTYPE_P(2);
+		if (ARR_ELEMTYPE(weights_array) != FLOAT8OID)
+		{
+			ptarray_free(ctrl_pts);
+			lwgeom_free(control_geom);
+			ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				errmsg("Weights array must contain float8 values")));
+		}
 
-        geom = (GSERIALIZED *)DatumGetPointer(point_elems[i]);
-        lwgeom = lwgeom_from_gserialized(geom);
+		nweights = ArrayGetNItems(ARR_NDIM(weights_array), ARR_DIMS(weights_array));
+		if (nweights != ctrl_pts->npoints)
+		{
+			ptarray_free(ctrl_pts);
+			lwgeom_free(control_geom);
+			ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				errmsg("Number of weights must equal number of control points")));
+		}
 
-        if (lwgeom->type != POINTTYPE) {
-            ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-                           errmsg("All elements must be points")));
-        }
+		weights = (double*) ARR_DATA_PTR(weights_array);
+	}
 
-        lwpoint = (LWPOINT *)lwgeom;
-        if (i == 0) {
-            srid = lwgeom->srid;
-            flags = lwgeom->flags;
-        }
+	/* Get knots array if provided */
+	if (!PG_ARGISNULL(3))
+	{
+		knots_array = PG_GETARG_ARRAYTYPE_P(3);
+		if (ARR_ELEMTYPE(knots_array) != FLOAT8OID)
+		{
+			ptarray_free(ctrl_pts);
+			lwgeom_free(control_geom);
+			ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				errmsg("Knots array must contain float8 values")));
+		}
 
-        getPoint4d_p(lwpoint->point, 0, &points[i]);
-        lwgeom_free(lwgeom);
-    }
+		nknots = ArrayGetNItems(ARR_NDIM(knots_array), ARR_DIMS(knots_array));
+		if (nknots < ctrl_pts->npoints + degree + 1)
+		{
+			ptarray_free(ctrl_pts);
+			lwgeom_free(control_geom);
+			ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+				errmsg("Insufficient knots for NURBS curve")));
+		}
 
-    /* Extract weights */
-    weights = lwalloc(nweights * sizeof(double));
-    for (i = 0; i < nweights; i++) {
-        if (weight_nulls[i]) {
-            ereport(ERROR, (errcode(ERRCODE_NULL_VALUE_NOT_ALLOWED),
-                           errmsg("Weights cannot be null")));
-        }
-        weights[i] = DatumGetFloat8(weight_elems[i]);
-        if (weights[i] <= 0.0) {
-            ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-                           errmsg("All weights must be positive")));
-        }
-    }
+		knots = (double*) ARR_DATA_PTR(knots_array);
+	}
+	else
+	{
+		/* Generate clamped knot vector */
+		knots = lwnurbs_clamped_knots(degree, ctrl_pts->npoints);
+		nknots = ctrl_pts->npoints + degree + 1;
+	}
 
-    /* Extract knots */
-    knots = lwalloc(nknots * sizeof(double));
-    for (i = 0; i < nknots; i++) {
-        if (knot_nulls[i]) {
-            ereport(ERROR, (errcode(ERRCODE_NULL_VALUE_NOT_ALLOWED),
-                           errmsg("Knots cannot be null")));
-        }
-        knots[i] = DatumGetFloat8(knot_elems[i]);
-    }
+	/* Create NURBS curve */
+	nurbs = lwnurbs_construct(srid, NULL, degree, ctrl_pts, weights, nweights, knots, nknots);
 
-    /* Validate knot vector */
-    if (!lwnurbs_validate_knots(knots, nknots, degree)) {
-        ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-                       errmsg("Invalid knot vector")));
-    }
+	/* Free generated knots if we created them */
+	if (PG_ARGISNULL(3) && knots)
+		lwfree(knots);
 
-    /* Create point array with weights */
-    pa = lwnurbs_points_with_weights(points, weights, npoints, flags);
+	lwgeom_free(control_geom);
 
-    /* Create NURBS curve */
-    curve = lwnurbscurve_construct(srid, FLAGS_SET_M(flags, 1), degree, pa, nknots, knots);
+	if (!nurbs)
+	{
+		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR),
+			errmsg("Failed to construct NURBS curve")));
+	}
 
-    /* Cleanup */
-    lwfree(points);
-    lwfree(weights);
-    lwfree(knots);
-    ptarray_free(pa);
-    pfree(point_elems);
-    pfree(point_nulls);
-    pfree(weight_elems);
-    pfree(weight_nulls);
-    pfree(knot_elems);
-    pfree(knot_nulls);
+	result = geometry_serialize((LWGEOM*)nurbs);
+	lwnurbs_free(nurbs);
 
-    if (!curve) {
-        ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR),
-                       errmsg("Failed to create NURBS curve")));
-    }
-
-    /* Return as serialized geometry */
-    geom = geometry_serialize((LWGEOM *)curve);
-    PG_RETURN_POINTER(geom);
+	PG_RETURN_POINTER(result);
 }
 
-/*
- * Evaluate a point on a curve at parameter t
- * ST_CurvePoint(curve, float8) -> POINT
+/**
+ * ST_NurbsEvaluate(nurbscurve geometry, t float8)
+ * Evaluate NURBS curve at parameter t
  */
-Datum ST_CurvePoint(PG_FUNCTION_ARGS)
+PG_FUNCTION_INFO_V1(lwgeom_nurbs_evaluate);
+Datum lwgeom_nurbs_evaluate(PG_FUNCTION_ARGS)
 {
-    GSERIALIZED *geom_in;
-    double t;
-    LWGEOM *lwgeom;
-    LWNURBSCURVE *curve;
-    POINT4D result_point;
-    LWPOINT *lwpoint;
-    GSERIALIZED *geom_out;
+	GSERIALIZED *pnurbs;
+	double t;
+	LWGEOM *lwgeom;
+	LWNURBSCURVE *nurbs;
+	POINT4D pt;
+	LWPOINT *lwpt;
+	GSERIALIZED *result;
 
-    if (PG_ARGISNULL(0) || PG_ARGISNULL(1))
-        PG_RETURN_NULL();
+	pnurbs = PG_GETARG_GSERIALIZED_P(0);
+	t = PG_GETARG_FLOAT8(1);
 
-    geom_in = PG_GETARG_GSERIALIZED_P(0);
-    t = PG_GETARG_FLOAT8(1);
+	lwgeom = lwgeom_from_gserialized(pnurbs);
+	if (lwgeom->type != NURBSCURVETYPE)
+	{
+		lwgeom_free(lwgeom);
+		ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+			errmsg("Geometry must be a NURBS curve")));
+	}
 
-    lwgeom = lwgeom_from_gserialized(geom_in);
+	nurbs = (LWNURBSCURVE*)lwgeom;
 
-    if (!IS_NURBS_TYPE(lwgeom->type)) {
-        lwgeom_free(lwgeom);
-        ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-                       errmsg("Input geometry must be a NURBS or Bezier curve")));
-    }
+	if (lwnurbs_interpolate_point(nurbs, t, &pt) != LW_SUCCESS)
+	{
+		lwgeom_free(lwgeom);
+		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR),
+			errmsg("Failed to evaluate NURBS curve at parameter %g", t)));
+	}
 
-    curve = lwgeom_as_nurbscurve(lwgeom);
+	lwpt = lwpoint_make(nurbs->srid,
+	                   FLAGS_GET_Z(nurbs->flags),
+	                   FLAGS_GET_M(nurbs->flags),
+	                   &pt);
 
-    /* Evaluate point at parameter t */
-    lwnurbscurve_evaluate_point(curve, t, &result_point);
+	lwgeom_free(lwgeom);
+	result = geometry_serialize((LWGEOM*)lwpt);
+	lwpoint_free(lwpt);
 
-    /* Create result point */
-    lwpoint = lwpoint_make3dz(curve->srid, result_point.x, result_point.y, result_point.z);
-
-    lwgeom_free(lwgeom);
-
-    geom_out = geometry_serialize((LWGEOM *)lwpoint);
-    PG_RETURN_POINTER(geom_out);
+	PG_RETURN_POINTER(result);
 }
 
-/*
- * Convert curve to linestring with specified number of segments
- * ST_CurveToLinestring(curve, int4) -> LINESTRING
+/**
+ * ST_NurbsToLine(nurbscurve geometry, segments integer)
+ * Convert NURBS curve to linestring
  */
-Datum ST_CurveToLinestring(PG_FUNCTION_ARGS)
+PG_FUNCTION_INFO_V1(lwgeom_nurbs_toline);
+Datum lwgeom_nurbs_toline(PG_FUNCTION_ARGS)
 {
-    GSERIALIZED *geom_in;
-    int32 num_segments;
-    LWGEOM *lwgeom;
-    LWNURBSCURVE *curve;
-    LWLINE *line;
-    GSERIALIZED *geom_out;
+	GSERIALIZED *pnurbs;
+	int32_t segments;
+	LWGEOM *lwgeom;
+	LWNURBSCURVE *nurbs;
+	LWLINE *line;
+	GSERIALIZED *result;
 
-    if (PG_ARGISNULL(0))
-        PG_RETURN_NULL();
+	pnurbs = PG_GETARG_GSERIALIZED_P(0);
+	segments = PG_GETARG_INT32(1);
 
-    geom_in = PG_GETARG_GSERIALIZED_P(0);
-    num_segments = PG_ARGISNULL(1) ? 32 : PG_GETARG_INT32(1);
+	if (segments < 2)
+		segments = NURBS_DEFAULT_SAMPLES;
 
-    if (num_segments < 1) num_segments = 32;
+	lwgeom = lwgeom_from_gserialized(pnurbs);
+	if (lwgeom->type != NURBSCURVETYPE)
+	{
+		lwgeom_free(lwgeom);
+		ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+			errmsg("Geometry must be a NURBS curve")));
+	}
 
-    lwgeom = lwgeom_from_gserialized(geom_in);
+	nurbs = (LWNURBSCURVE*)lwgeom;
+	line = lwnurbs_to_linestring(nurbs, segments);
 
-    /* Handle NURBS/Bezier curves */
-    if (IS_NURBS_TYPE(lwgeom->type)) {
-        curve = lwgeom_as_nurbscurve(lwgeom);
-        line = lwnurbscurve_to_linestring(curve, num_segments);
-    } else {
-        /* For other geometry types, return as-is or convert appropriately */
-        lwgeom_free(lwgeom);
-        PG_RETURN_POINTER(geom_in);
-    }
+	lwgeom_free(lwgeom);
 
-    lwgeom_free(lwgeom);
+	if (!line)
+	{
+		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR),
+			errmsg("Failed to convert NURBS curve to linestring")));
+	}
 
-    if (!line) {
-        ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR),
-                       errmsg("Failed to convert curve to linestring")));
-    }
+	result = geometry_serialize((LWGEOM*)line);
+	lwline_free(line);
 
-    geom_out = geometry_serialize((LWGEOM *)line);
-    PG_RETURN_POINTER(geom_out);
+	PG_RETURN_POINTER(result);
 }
 
-/*
- * Check if a curve is valid
- * ST_IsValidCurve(curve) -> boolean
+/**
+ * ST_NurbsLength(nurbscurve geometry)
+ * Calculate NURBS curve length
  */
-Datum ST_IsValidCurve(PG_FUNCTION_ARGS)
+PG_FUNCTION_INFO_V1(lwgeom_nurbs_length);
+Datum lwgeom_nurbs_length(PG_FUNCTION_ARGS)
 {
-    GSERIALIZED *geom;
-    LWGEOM *lwgeom;
-    LWNURBSCURVE *curve;
-    bool is_valid;
+	GSERIALIZED *pnurbs;
+	LWGEOM *lwgeom;
+	LWNURBSCURVE *nurbs;
+	double length;
 
-    if (PG_ARGISNULL(0))
-        PG_RETURN_BOOL(false);
+	pnurbs = PG_GETARG_GSERIALIZED_P(0);
+	lwgeom = lwgeom_from_gserialized(pnurbs);
 
-    geom = PG_GETARG_GSERIALIZED_P(0);
-    lwgeom = lwgeom_from_gserialized(geom);
+	if (lwgeom->type != NURBSCURVETYPE)
+	{
+		lwgeom_free(lwgeom);
+		ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+			errmsg("Geometry must be a NURBS curve")));
+	}
 
-    if (!IS_NURBS_TYPE(lwgeom->type)) {
-        lwgeom_free(lwgeom);
-        PG_RETURN_BOOL(false);
-    }
+	nurbs = (LWNURBSCURVE*)lwgeom;
+	length = lwnurbs_length(nurbs);
+	lwgeom_free(lwgeom);
 
-    curve = lwgeom_as_nurbscurve(lwgeom);
-    is_valid = lwnurbscurve_is_valid(curve);
-
-    lwgeom_free(lwgeom);
-
-    PG_RETURN_BOOL(is_valid);
+	PG_RETURN_FLOAT8(length);
 }
 
-/*
- * Calculate curve length
- * ST_CurveLength(curve, int4) -> float8
+/**
+ * ST_NurbsStartPoint(nurbscurve geometry)
+ * Get NURBS curve start point
  */
-Datum ST_CurveLength(PG_FUNCTION_ARGS)
+PG_FUNCTION_INFO_V1(lwgeom_nurbs_startpoint);
+Datum lwgeom_nurbs_startpoint(PG_FUNCTION_ARGS)
 {
-    GSERIALIZED *geom;
-    int32 num_segments;
-    LWGEOM *lwgeom;
-    LWNURBSCURVE *curve;
-    double length;
+	GSERIALIZED *pnurbs;
+	LWGEOM *lwgeom;
+	LWNURBSCURVE *nurbs;
+	POINT4D pt;
+	LWPOINT *lwpt;
+	GSERIALIZED *result;
 
-    if (PG_ARGISNULL(0))
-        PG_RETURN_NULL();
+	pnurbs = PG_GETARG_GSERIALIZED_P(0);
+	lwgeom = lwgeom_from_gserialized(pnurbs);
 
-    geom = PG_GETARG_GSERIALIZED_P(0);
-    num_segments = PG_ARGISNULL(1) ? 100 : PG_GETARG_INT32(1);
+	if (lwgeom->type != NURBSCURVETYPE)
+	{
+		lwgeom_free(lwgeom);
+		ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+			errmsg("Geometry must be a NURBS curve")));
+	}
 
-    lwgeom = lwgeom_from_gserialized(geom);
+	nurbs = (LWNURBSCURVE*)lwgeom;
 
-    if (IS_NURBS_TYPE(lwgeom->type)) {
-        curve = lwgeom_as_nurbscurve(lwgeom);
-        length = lwnurbscurve_length(curve, num_segments);
-    } else {
-        /* Use standard PostGIS length for other types */
-        length = lwgeom_length(lwgeom);
-    }
+	if (lwnurbs_startpoint(nurbs, &pt) != LW_SUCCESS)
+	{
+		lwgeom_free(lwgeom);
+		PG_RETURN_NULL();
+	}
 
-    lwgeom_free(lwgeom);
+	lwpt = lwpoint_make(nurbs->srid,
+	                   FLAGS_GET_Z(nurbs->flags),
+	                   FLAGS_GET_M(nurbs->flags),
+	                   &pt);
 
-    PG_RETURN_FLOAT8(length);
+	lwgeom_free(lwgeom);
+	result = geometry_serialize((LWGEOM*)lwpt);
+	lwpoint_free(lwpt);
+
+	PG_RETURN_POINTER(result);
 }
 
-/*
- * Get control points of a curve
- * ST_CurveControlPoints(curve) -> geometry[]
+/**
+ * ST_NurbsEndPoint(nurbscurve geometry)
+ * Get NURBS curve end point
  */
-Datum ST_CurveControlPoints(PG_FUNCTION_ARGS)
+PG_FUNCTION_INFO_V1(lwgeom_nurbs_endpoint);
+Datum lwgeom_nurbs_endpoint(PG_FUNCTION_ARGS)
 {
-    GSERIALIZED *geom_in;
-    LWGEOM *lwgeom;
-    LWNURBSCURVE *curve;
-    ArrayType *result;
-    Datum *point_datums;
-    POINT4D point;
-    LWPOINT *lwpoint;
-    GSERIALIZED *point_geom;
-    int i;
+	GSERIALIZED *pnurbs;
+	LWGEOM *lwgeom;
+	LWNURBSCURVE *nurbs;
+	POINT4D pt;
+	LWPOINT *lwpt;
+	GSERIALIZED *result;
 
-    if (PG_ARGISNULL(0))
-        PG_RETURN_NULL();
+	pnurbs = PG_GETARG_GSERIALIZED_P(0);
+	lwgeom = lwgeom_from_gserialized(pnurbs);
 
-    geom_in = PG_GETARG_GSERIALIZED_P(0);
-    lwgeom = lwgeom_from_gserialized(geom_in);
+	if (lwgeom->type != NURBSCURVETYPE)
+	{
+		lwgeom_free(lwgeom);
+		ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+			errmsg("Geometry must be a NURBS curve")));
+	}
 
-    if (!IS_NURBS_TYPE(lwgeom->type)) {
-        lwgeom_free(lwgeom);
-        ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-                       errmsg("Input geometry must be a NURBS or Bezier curve")));
-    }
+	nurbs = (LWNURBSCURVE*)lwgeom;
 
-    curve = lwgeom_as_nurbscurve(lwgeom);
+	if (lwnurbs_endpoint(nurbs, &pt) != LW_SUCCESS)
+	{
+		lwgeom_free(lwgeom);
+		PG_RETURN_NULL();
+	}
 
-    /* Create array of control points */
-    point_datums = palloc(curve->num_points * sizeof(Datum));
+	lwpt = lwpoint_make(nurbs->srid,
+	                   FLAGS_GET_Z(nurbs->flags),
+	                   FLAGS_GET_M(nurbs->flags),
+	                   &pt);
 
-    for (i = 0; i < curve->num_points; i++) {
-        getPoint4d_p(curve->points, i, &point);
+	lwgeom_free(lwgeom);
+	result = geometry_serialize((LWGEOM*)lwpt);
+	lwpoint_free(lwpt);
 
-        /* Create point geometry (without weight) */
-        lwpoint = lwpoint_make3dz(curve->srid, point.x, point.y,
-                              FLAGS_GET_Z(curve->flags) ? point.z : 0.0);
-        point_geom = geometry_serialize((LWGEOM *)lwpoint);
-        point_datums[i] = PointerGetDatum(point_geom);
-        lwpoint_free(lwpoint);
-    }
-
-    lwgeom_free(lwgeom);
-
-    /* Construct PostgreSQL array */
-    result = construct_array(point_datums, curve->num_points,
-                            get_fn_expr_rettype(fcinfo->flinfo),
-                            -1, false, 'd');
-
-    pfree(point_datums);
-
-    PG_RETURN_ARRAYTYPE_P(result);
+	PG_RETURN_POINTER(result);
 }
 
-/*
- * Get knot vector of a NURBS curve
- * ST_CurveKnots(curve) -> float8[]
+/**
+ * ST_NurbsIsClosed(nurbscurve geometry)
+ * Check if NURBS curve is closed
  */
-Datum ST_CurveKnots(PG_FUNCTION_ARGS)
+PG_FUNCTION_INFO_V1(lwgeom_nurbs_isclosed);
+Datum lwgeom_nurbs_isclosed(PG_FUNCTION_ARGS)
 {
-    GSERIALIZED *geom_in;
-    LWGEOM *lwgeom;
-    LWNURBSCURVE *curve;
-    ArrayType *result;
-    Datum *knot_datums;
-    int i;
+	GSERIALIZED *pnurbs;
+	LWGEOM *lwgeom;
+	LWNURBSCURVE *nurbs;
+	int is_closed;
 
-    if (PG_ARGISNULL(0))
-        PG_RETURN_NULL();
+	pnurbs = PG_GETARG_GSERIALIZED_P(0);
+	lwgeom = lwgeom_from_gserialized(pnurbs);
 
-    geom_in = PG_GETARG_GSERIALIZED_P(0);
-    lwgeom = lwgeom_from_gserialized(geom_in);
+	if (lwgeom->type != NURBSCURVETYPE)
+	{
+		lwgeom_free(lwgeom);
+		ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+			errmsg("Geometry must be a NURBS curve")));
+	}
 
-    if (!IS_NURBS_TYPE(lwgeom->type)) {
-        lwgeom_free(lwgeom);
-        ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-                       errmsg("Input geometry must be a NURBS or Bezier curve")));
-    }
+	nurbs = (LWNURBSCURVE*)lwgeom;
+	is_closed = lwnurbs_is_closed(nurbs);
+	lwgeom_free(lwgeom);
 
-    curve = lwgeom_as_nurbscurve(lwgeom);
+	PG_RETURN_BOOL(is_closed);
+}
 
-    /* Bezier curves don't have explicit knot vectors */
-    if (curve->type == BEZIERCURVETYPE || !curve->knots) {
-        lwgeom_free(lwgeom);
-        PG_RETURN_NULL();
-    }
+/**
+ * ST_NurbsIsValid(nurbscurve geometry)
+ * Check if NURBS curve is valid
+ */
+PG_FUNCTION_INFO_V1(lwgeom_nurbs_isvalid);
+Datum lwgeom_nurbs_isvalid(PG_FUNCTION_ARGS)
+{
+	GSERIALIZED *pnurbs;
+	LWGEOM *lwgeom;
+	LWNURBSCURVE *nurbs;
+	int is_valid;
 
-    /* Create array of knot values */
-    knot_datums = palloc(curve->num_knots * sizeof(Datum));
+	pnurbs = PG_GETARG_GSERIALIZED_P(0);
+	lwgeom = lwgeom_from_gserialized(pnurbs);
 
-    for (i = 0; i < curve->num_knots; i++) {
-        knot_datums[i] = Float8GetDatum(curve->knots[i]);
-    }
+	if (lwgeom->type != NURBSCURVETYPE)
+	{
+		lwgeom_free(lwgeom);
+		ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+			errmsg("Geometry must be a NURBS curve")));
+	}
 
-    lwgeom_free(lwgeom);
+	nurbs = (LWNURBSCURVE*)lwgeom;
+	is_valid = lwnurbs_is_valid(nurbs);
+	lwgeom_free(lwgeom);
 
-    /* Construct PostgreSQL array */
-    result = construct_array(knot_datums, curve->num_knots, FLOAT8OID,
-                            8, FLOAT8PASSBYVAL, 'd');
+	PG_RETURN_BOOL(is_valid);
+}
 
-    pfree(knot_datums);
+/**
+ * ST_NurbsDegree(nurbscurve geometry)
+ * Get NURBS curve degree
+ */
+PG_FUNCTION_INFO_V1(lwgeom_nurbs_degree);
+Datum lwgeom_nurbs_degree(PG_FUNCTION_ARGS)
+{
+	GSERIALIZED *pnurbs;
+	LWGEOM *lwgeom;
+	LWNURBSCURVE *nurbs;
+	uint32_t degree;
 
-    PG_RETURN_ARRAYTYPE_P(result);
+	pnurbs = PG_GETARG_GSERIALIZED_P(0);
+	lwgeom = lwgeom_from_gserialized(pnurbs);
+
+	if (lwgeom->type != NURBSCURVETYPE)
+	{
+		lwgeom_free(lwgeom);
+		ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+			errmsg("Geometry must be a NURBS curve")));
+	}
+
+	nurbs = (LWNURBSCURVE*)lwgeom;
+	degree = lwnurbs_get_degree(nurbs);
+	lwgeom_free(lwgeom);
+
+	PG_RETURN_INT32(degree);
+}
+
+/**
+ * ST_NurbsNPoints(nurbscurve geometry)
+ * Get number of control points in NURBS curve
+ */
+PG_FUNCTION_INFO_V1(lwgeom_nurbs_npoints);
+Datum lwgeom_nurbs_npoints(PG_FUNCTION_ARGS)
+{
+	GSERIALIZED *pnurbs;
+	LWGEOM *lwgeom;
+	LWNURBSCURVE *nurbs;
+	uint32_t npoints;
+
+	pnurbs = PG_GETARG_GSERIALIZED_P(0);
+	lwgeom = lwgeom_from_gserialized(pnurbs);
+
+	if (lwgeom->type != NURBSCURVETYPE)
+	{
+		lwgeom_free(lwgeom);
+		ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+			errmsg("Geometry must be a NURBS curve")));
+	}
+
+	nurbs = (LWNURBSCURVE*)lwgeom;
+	npoints = lwnurbs_get_npoints(nurbs);
+	lwgeom_free(lwgeom);
+
+	PG_RETURN_INT32(npoints);
 }

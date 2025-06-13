@@ -114,8 +114,9 @@ const char* lwgeom_version(void);
 #define POLYHEDRALSURFACETYPE   13
 #define TRIANGLETYPE            14
 #define TINTYPE                 15
+#define NURBSCURVETYPE          21
 
-#define NUMTYPES                16
+#define NUMTYPES                17
 
 /**
 * Flags applied in EWKB to indicate Z/M dimensions and

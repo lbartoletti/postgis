@@ -26,6 +26,7 @@
 #include "liblwgeom_internal.h"
 #include "lwgeom_log.h"
 #include "stringbuffer.h"
+#include "lwgeom_nurbs.h"
 
 static void lwgeom_to_wkt_sb(const LWGEOM *geom, stringbuffer_t *sb, int precision, uint8_t variant);
 
@@ -609,6 +610,35 @@ static void lwpsurface_to_wkt_sb(const LWPSURFACE *psurf, stringbuffer_t *sb, in
 	stringbuffer_append_len(sb, ")", 1);
 }
 
+/*
+ * NURBSCURVE
+ */
+static void lwnurbs_to_wkt_sb(const LWNURBSCURVE *nurbs, stringbuffer_t *sb, int precision, uint8_t variant)
+{
+    if (!(variant & WKT_NO_TYPE))
+    {
+        stringbuffer_append_len(sb, "NURBSCURVE", 10);
+        dimension_qualifiers_to_wkt_sb((LWGEOM*)nurbs, sb, variant);
+    }
+
+    if (lwnurbs_is_empty(nurbs))
+    {
+        empty_to_wkt_sb(sb);
+        return;
+    }
+
+    /* For now, output as sampled linestring */
+    LWLINE *line = lwnurbs_to_linestring(nurbs, NURBS_DEFAULT_SAMPLES);
+    if (line)
+    {
+        lwline_to_wkt_sb(line, sb, precision, variant | WKT_NO_TYPE);
+        lwline_free(line);
+    }
+    else
+    {
+        empty_to_wkt_sb(sb);
+    }
+}
 
 /*
 * Generic GEOMETRY
@@ -665,6 +695,9 @@ static void lwgeom_to_wkt_sb(const LWGEOM *geom, stringbuffer_t *sb, int precisi
 		break;
 	case POLYHEDRALSURFACETYPE:
 		lwpsurface_to_wkt_sb((LWPSURFACE*)geom, sb, precision, variant);
+		break;
+	case NURBSCURVETYPE:
+    		lwnurbs_to_wkt_sb((LWNURBSCURVE*)geom, sb, precision, variant);
 		break;
 	default:
 		lwerror("lwgeom_to_wkt_sb: Type %d - %s unsupported.",

@@ -126,6 +126,7 @@ int lwgeom_parse_wkt(LWGEOM_PARSER_RESULT *parser_result, char *wktstr, int pars
 %token SEMICOLON_TOK
 %token TRIANGLE_TOK TIN_TOK
 %token POLYHEDRALSURFACE_TOK
+%token NURBSCURVE_TOK
 
 %token <doublevalue> DOUBLE_TOK
 %token <stringvalue> DIMENSIONALITY_TOK
@@ -167,6 +168,7 @@ int lwgeom_parse_wkt(LWGEOM_PARSER_RESULT *parser_result, char *wktstr, int pars
 %type <geometryvalue> ring_list
 %type <geometryvalue> surface_list
 %type <geometryvalue> tin
+%type <geometryvalue> nurbscurve
 %type <geometryvalue> triangle
 %type <geometryvalue> triangle_list
 %type <geometryvalue> triangle_untagged
@@ -208,6 +210,7 @@ int lwgeom_parse_wkt(LWGEOM_PARSER_RESULT *parser_result, char *wktstr, int pars
 %destructor { lwgeom_free($$); } polygon_untagged
 %destructor { lwgeom_free($$); } polyhedralsurface
 %destructor { lwgeom_free($$); } tin
+%destructor { lwgeom_free($$); } nurbscurve
 %destructor { lwgeom_free($$); } triangle
 %destructor { lwgeom_free($$); } triangle_untagged
 
@@ -234,6 +237,7 @@ geometry_no_srid :
 	tin { $$ = $1; } |
 	polyhedralsurface { $$ = $1; } |
 	triangle { $$ = $1; } |
+	nurbscurve { $$ = $1; } |
 	geometrycollection { $$ = $1; } ;
 
 geometrycollection :
@@ -539,5 +543,16 @@ coordinate :
 	DOUBLE_TOK DOUBLE_TOK DOUBLE_TOK DOUBLE_TOK
 		{ $$ = wkt_parser_coord_4($1, $2, $3, $4); WKT_ERROR(); } ;
 
+nurbscurve:
+    NURBSCURVE_TOK LBRACKET_TOK ptarray RBRACKET_TOK
+    {
+        /* Create NURBS curve from points */
+        LWNURBSCURVE *nurbs = lwnurbs_construct(SRID_UNKNOWN, NULL, 2, $3, NULL, 0, NULL, 0);
+        $$ = (LWGEOM*)nurbs;
+    }
+    | NURBSCURVE_TOK EMPTY_TOK
+    {
+        $$ = (LWGEOM*)lwnurbs_construct_empty(SRID_UNKNOWN, 0, 0);
+    };
 %%
 

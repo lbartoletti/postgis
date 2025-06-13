@@ -27,7 +27,7 @@
 #include "lwgeom_log.h"
 #include <stdlib.h>
 #include <math.h>
-
+#include "lwgeom_nurbs.h"
 
 GBOX* gbox_new(lwflags_t flags)
 {
@@ -777,6 +777,14 @@ int lwgeom_calculate_gbox_cartesian(const LWGEOM *lwgeom, GBOX *gbox)
 	case TINTYPE:
 	case COLLECTIONTYPE:
 		return lwcollection_calculate_gbox_cartesian((LWCOLLECTION *)lwgeom, gbox);
+	case NURBSCURVETYPE:
+	{
+	    LWNURBSCURVE *nurbs = (LWNURBSCURVE*)lwgeom;
+	    if (nurbs->ctrl_pts && nurbs->ctrl_pts->npoints > 0)
+		return ptarray_calculate_gbox_cartesian(nurbs->ctrl_pts, gbox);
+	    else
+		return LW_FAILURE;
+	}
 	}
 	/* Never get here, please. */
 	lwerror("unsupported type (%d) - %s", lwgeom->type, lwtype_name(lwgeom->type));

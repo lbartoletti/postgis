@@ -1,562 +1,560 @@
-/*
- * PostGIS NURBS Support - Extended Geometry Implementation
- * File: liblwgeom/lwgeom_nurbs.c
+/**********************************************************************
  *
- * Implementation of native NURBS and Bezier curve geometry types for PostGIS.
- * These types preserve control points and curve parameters.
+ * PostGIS - Spatial Types for PostgreSQL
+ * http://postgis.net
  *
- * Copyright (c) 2024 PostGIS contributors
- * License: GPL v2+
- */
+ * PostGIS is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * PostGIS is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with PostGIS.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ **********************************************************************
+ *
+ * Copyright (C) 2025 PostGIS contributors
+ *
+ **********************************************************************/
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
+#include "liblwgeom_internal.h"
+#include "lwgeom_log.h"
 #include "lwgeom_nurbs.h"
 
-/*
- * Construct a NURBS curve geometry
+/**
+ * Construct a LWNURBSCURVE following PostGIS patterns
  */
-LWNURBSCURVE* lwnurbscurve_construct(uint32_t srid, lwflags_t flags, uint32_t degree,
-                                    POINTARRAY *points, uint32_t num_knots, double *knots)
+LWNURBSCURVE *
+lwnurbs_construct(int32_t srid, GBOX *bbox, uint32_t degree,
+                 POINTARRAY *ctrl_pts, double *weights,
+                 uint32_t nweights, double *knots, uint32_t nknots)
 {
-    LWNURBSCURVE *curve;
+	LWNURBSCURVE *result;
 
-    /* Validate input parameters */
-    if (degree < 1 || degree > NURBS_MAX_DEGREE) return NULL;
-    if (!points || points->npoints < 2 || points->npoints > NURBS_MAX_POINTS) return NULL;
-    if (degree >= points->npoints) return NULL;
+	/* Basic validation */
+	if (degree < NURBS_MIN_DEGREE || degree > NURBS_MAX_DEGREE)
+	{
+		lwerror("lwnurbs_construct: invalid degree %d", degree);
+		return NULL;
+	}
 
-    /* Allocate structure */
-    curve = lwalloc(sizeof(LWNURBSCURVE));
-    if (!curve) return NULL;
+	if (ctrl_pts && ctrl_pts->npoints < NURBS_MIN_POINTS)
+	{
+		lwerror("lwnurbs_construct: minimum %d control points required", NURBS_MIN_POINTS);
+		return NULL;
+	}
 
-    /* Set basic properties */
-    curve->type = (num_knots > 0) ? NURBSCURVETYPE : BEZIERCURVETYPE;
-    curve->flags = flags;
-    curve->srid = srid;
-    curve->bbox = NULL;  /* Will be computed on demand */
+	result = (LWNURBSCURVE*) lwalloc(sizeof(LWNURBSCURVE));
+	result->type = NURBSCURVETYPE;
+	result->flags = ctrl_pts ? ctrl_pts->flags : lwflags(0, 0, 0);
+	FLAGS_SET_BBOX(result->flags, bbox ? 1 : 0);
+	result->srid = srid;
+	result->bbox = bbox;
+	result->degree = degree;
+	result->ctrl_pts = ctrl_pts;
+	result->nweights = nweights;
+	result->nknots = nknots;
 
-    curve->degree = degree;
-    curve->num_points = points->npoints;
-    curve->points = ptarray_clone_deep(points);
+	/* Copy weights if provided */
+	if (weights && nweights > 0)
+	{
+		result->weights = (double*) lwalloc(sizeof(double) * nweights);
+		memcpy(result->weights, weights, sizeof(double) * nweights);
+	}
+	else
+	{
+		result->weights = NULL;
+	}
 
-    /* Handle knot vector */
-    curve->num_knots = num_knots;
-    if (num_knots > 0 && knots) {
-        curve->knots = lwalloc(num_knots * sizeof(double));
-        if (!curve->knots) {
-            ptarray_free(curve->points);
-            lwfree(curve);
-            return NULL;
-        }
-        memcpy(curve->knots, knots, num_knots * sizeof(double));
-    } else {
-        curve->knots = NULL;
-    }
+	/* Copy knots if provided */
+	if (knots && nknots > 0)
+	{
+		result->knots = (double*) lwalloc(sizeof(double) * nknots);
+		memcpy(result->knots, knots, sizeof(double) * nknots);
+	}
+	else
+	{
+		result->knots = NULL;
+	}
 
-    return curve;
+	return result;
 }
 
-/*
- * Construct a Bezier curve geometry
+/**
+ * Construct an empty NURBS curve
  */
-LWBEZIERCURVE* lwbeziercurve_construct(uint32_t srid, lwflags_t flags, uint32_t degree,
-                                      POINTARRAY *points)
+LWNURBSCURVE *
+lwnurbs_construct_empty(int32_t srid, char hasz, char hasm)
 {
-    return lwnurbscurve_construct(srid, flags, degree, points, 0, NULL);
+	LWNURBSCURVE *result = lwalloc(sizeof(LWNURBSCURVE));
+	result->type = NURBSCURVETYPE;
+	result->flags = lwflags(hasz, hasm, 0);
+	result->srid = srid;
+	result->bbox = NULL;
+	result->degree = 1;
+	result->ctrl_pts = ptarray_construct_empty(hasz, hasm, 1);
+	result->weights = NULL;
+	result->nweights = 0;
+	result->knots = NULL;
+	result->nknots = 0;
+	return result;
 }
 
-/*
+/**
  * Free NURBS curve memory
  */
-void lwnurbscurve_free(LWNURBSCURVE *curve)
+void
+lwnurbs_free(LWNURBSCURVE *nurbs)
 {
-    if (curve) {
-        if (curve->points) ptarray_free(curve->points);
-        if (curve->knots) lwfree(curve->knots);
-        if (curve->bbox) lwfree(curve->bbox);
-        lwfree(curve);
-    }
+	if (!nurbs) return;
+
+	if (nurbs->bbox)
+		lwfree(nurbs->bbox);
+	if (nurbs->ctrl_pts)
+		ptarray_free(nurbs->ctrl_pts);
+	if (nurbs->weights)
+		lwfree(nurbs->weights);
+	if (nurbs->knots)
+		lwfree(nurbs->knots);
+	lwfree(nurbs);
 }
 
-/*
+/**
+ * Release NURBS curve (for lwgeom_release pattern)
+ */
+void
+lwnurbs_release(LWNURBSCURVE *nurbs)
+{
+	lwgeom_release(lwnurbs_as_lwgeom(nurbs));
+}
+
+/**
+ * B-spline basis function implementation (De Boor algorithm)
+ */
+double
+bspline_basis(int i, int p, double t, const double *knots, int nknots)
+{
+	if (p == 0)
+	{
+		if (i >= 0 && i < nknots - 1 && t >= knots[i] && t < knots[i + 1])
+			return 1.0;
+		else if (i == nknots - 2 && fabs(t - knots[nknots - 1]) < NURBS_TOLERANCE)
+			return 1.0;
+		else
+			return 0.0;
+	}
+
+	double left = 0.0, right = 0.0;
+
+	if (i + p < nknots && fabs(knots[i + p] - knots[i]) > NURBS_TOLERANCE)
+	{
+		left = (t - knots[i]) / (knots[i + p] - knots[i]) *
+		       bspline_basis(i, p - 1, t, knots, nknots);
+	}
+
+	if (i + p + 1 < nknots && fabs(knots[i + p + 1] - knots[i + 1]) > NURBS_TOLERANCE)
+	{
+		right = (knots[i + p + 1] - t) / (knots[i + p + 1] - knots[i + 1]) *
+		        bspline_basis(i + 1, p - 1, t, knots, nknots);
+	}
+
+	return left + right;
+}
+
+/**
+ * Evaluate NURBS curve at parameter t
+ */
+int
+lwnurbs_interpolate_point(const LWNURBSCURVE *nurbs, double t, POINT4D *pt)
+{
+	if (!nurbs || !nurbs->ctrl_pts || !pt)
+		return LW_FAILURE;
+
+	if (nurbs->ctrl_pts->npoints == 0)
+		return LW_FAILURE;
+
+	/* Clamp parameter to [0,1] */
+	if (t < 0.0) t = 0.0;
+	if (t > 1.0) t = 1.0;
+
+	uint32_t n = nurbs->ctrl_pts->npoints;
+	uint32_t p = nurbs->degree;
+	int hasz = FLAGS_GET_Z(nurbs->flags);
+	int hasm = FLAGS_GET_M(nurbs->flags);
+
+	/* Initialize point */
+	pt->x = pt->y = pt->z = pt->m = 0.0;
+
+	double weight_sum = 0.0;
+	POINT4D ctrl_pt;
+
+	for (uint32_t i = 0; i < n; i++)
+	{
+		getPoint4d_p(nurbs->ctrl_pts, i, &ctrl_pt);
+
+		double basis = bspline_basis(i, p, t, nurbs->knots, nurbs->nknots);
+		double weight = (nurbs->weights && i < nurbs->nweights) ? nurbs->weights[i] : 1.0;
+		double w_basis = weight * basis;
+
+		pt->x += w_basis * ctrl_pt.x;
+		pt->y += w_basis * ctrl_pt.y;
+		if (hasz) pt->z += w_basis * ctrl_pt.z;
+		if (hasm) pt->m += w_basis * ctrl_pt.m;
+
+		weight_sum += w_basis;
+	}
+
+	/* Normalize by weight sum for rational curves */
+	if (weight_sum > NURBS_TOLERANCE)
+	{
+		pt->x /= weight_sum;
+		pt->y /= weight_sum;
+		if (hasz) pt->z /= weight_sum;
+		if (hasm) pt->m /= weight_sum;
+	}
+
+	return LW_SUCCESS;
+}
+
+/**
+ * Convert NURBS curve to linestring with sampling
+ */
+LWLINE *
+lwnurbs_to_linestring(const LWNURBSCURVE *nurbs, uint32_t segments)
+{
+	if (!nurbs || !nurbs->ctrl_pts)
+		return NULL;
+
+	if (lwnurbs_is_empty(nurbs))
+		return lwline_construct_empty(nurbs->srid,
+		                            FLAGS_GET_Z(nurbs->flags),
+		                            FLAGS_GET_M(nurbs->flags));
+
+	if (segments < 2)
+		segments = NURBS_DEFAULT_SAMPLES;
+
+	int hasz = FLAGS_GET_Z(nurbs->flags);
+	int hasm = FLAGS_GET_M(nurbs->flags);
+	POINTARRAY *pa = ptarray_construct_empty(hasz, hasm, segments + 1);
+
+	for (uint32_t i = 0; i <= segments; i++)
+	{
+		double t = (double)i / (double)segments;
+		POINT4D pt;
+
+		if (lwnurbs_interpolate_point(nurbs, t, &pt) == LW_SUCCESS)
+		{
+			ptarray_append_point(pa, &pt, LW_FALSE);
+		}
+	}
+
+	return lwline_construct(nurbs->srid, NULL, pa);
+}
+
+/**
+ * Calculate NURBS curve length (approximate)
+ */
+double
+lwnurbs_length(const LWNURBSCURVE *nurbs)
+{
+	if (!nurbs || lwnurbs_is_empty(nurbs))
+		return 0.0;
+
+	LWLINE *line = lwnurbs_to_linestring(nurbs, 64);
+	if (!line)
+		return 0.0;
+
+	double length = lwgeom_length((LWGEOM*)line);
+	lwline_free(line);
+	return length;
+}
+
+/**
+ * Validate NURBS curve
+ */
+int
+lwnurbs_is_valid(const LWNURBSCURVE *nurbs)
+{
+	if (!nurbs) return LW_FALSE;
+
+	/* Check degree */
+	if (nurbs->degree < NURBS_MIN_DEGREE || nurbs->degree > NURBS_MAX_DEGREE)
+		return LW_FALSE;
+
+	/* Check control points */
+	if (!nurbs->ctrl_pts)
+		return LW_FALSE;
+
+	if (nurbs->ctrl_pts->npoints > 0 && nurbs->ctrl_pts->npoints < NURBS_MIN_POINTS)
+		return LW_FALSE;
+
+	/* Check weights if present */
+	if (nurbs->weights && nurbs->nweights != nurbs->ctrl_pts->npoints)
+		return LW_FALSE;
+
+	/* Check knots if present */
+	if (nurbs->knots && nurbs->nknots < nurbs->ctrl_pts->npoints + nurbs->degree + 1)
+		return LW_FALSE;
+
+	return LW_TRUE;
+}
+
+/**
+ * Check if NURBS curve is empty
+ */
+int
+lwnurbs_is_empty(const LWNURBSCURVE *nurbs)
+{
+	return (!nurbs || !nurbs->ctrl_pts || nurbs->ctrl_pts->npoints == 0);
+}
+
+/**
+ * Check if NURBS curve is closed
+ */
+int
+lwnurbs_is_closed(const LWNURBSCURVE *nurbs)
+{
+	if (lwnurbs_is_empty(nurbs))
+		return LW_FALSE;
+
+	POINT4D start, end;
+	if (lwnurbs_startpoint(nurbs, &start) && lwnurbs_endpoint(nurbs, &end))
+	{
+		return (fabs(start.x - end.x) < NURBS_TOLERANCE &&
+		        fabs(start.y - end.y) < NURBS_TOLERANCE &&
+		        fabs(start.z - end.z) < NURBS_TOLERANCE &&
+		        fabs(start.m - end.m) < NURBS_TOLERANCE);
+	}
+	return LW_FALSE;
+}
+
+/**
  * Clone NURBS curve (shallow copy)
  */
-LWNURBSCURVE* lwnurbscurve_clone(const LWNURBSCURVE *curve)
+LWNURBSCURVE *
+lwnurbs_clone(const LWNURBSCURVE *nurbs)
 {
-    LWNURBSCURVE *clone;
-
-    if (!curve) return NULL;
-
-    clone = lwalloc(sizeof(LWNURBSCURVE));
-    memcpy(clone, curve, sizeof(LWNURBSCURVE));
-
-    /* Shallow copy - share references */
-    return clone;
+	if (!nurbs) return NULL;
+	return (LWNURBSCURVE*)lwline_clone((LWLINE*)nurbs);
 }
 
-/*
- * Clone NURBS curve (deep copy)
+/**
+ * Deep clone NURBS curve
  */
-LWNURBSCURVE* lwnurbscurve_clone_deep(const LWNURBSCURVE *curve)
+LWNURBSCURVE *
+lwnurbs_clone_deep(const LWNURBSCURVE *nurbs)
 {
-    if (!curve) return NULL;
+	if (!nurbs) return NULL;
 
-    return lwnurbscurve_construct(curve->srid, curve->flags, curve->degree,
-                                 curve->points, curve->num_knots, curve->knots);
+	POINTARRAY *ctrl_pts = nurbs->ctrl_pts ? ptarray_clone_deep(nurbs->ctrl_pts) : NULL;
+	GBOX *bbox = nurbs->bbox ? gbox_clone(nurbs->bbox) : NULL;
+
+	return lwnurbs_construct(nurbs->srid, bbox, nurbs->degree, ctrl_pts,
+	                        nurbs->weights, nurbs->nweights,
+	                        nurbs->knots, nurbs->nknots);
 }
 
-/*
- * Validate NURBS curve geometry
+/**
+ * Compute bounding box for NURBS curve
  */
-bool lwnurbscurve_is_valid(const LWNURBSCURVE *curve)
+void
+lwnurbs_compute_bbox_p(LWNURBSCURVE *nurbs)
 {
-    POINT4D point;
-    int i;
+	if (!nurbs || !nurbs->ctrl_pts)
+		return;
 
-    if (!curve || !curve->points) return false;
+	if (nurbs->bbox)
+	{
+		lwfree(nurbs->bbox);
+		nurbs->bbox = NULL;
+	}
 
-    /* Basic parameter validation */
-    if (curve->degree < 1 || curve->num_points < 2) return false;
-    if (curve->degree >= curve->num_points) return false;
-
-    /* Validate control point weights (stored in M coordinate) */
-    if (FLAGS_GET_M(curve->flags)) {
-        for (i = 0; i < curve->num_points; i++) {
-            getPoint4d_p(curve->points, i, &point);
-            if (point.m <= 0.0) return false;
-        }
-    }
-
-    /* NURBS-specific validation */
-    if (curve->type == NURBSCURVETYPE) {
-        if (curve->num_knots != curve->num_points + curve->degree + 1) return false;
-        if (!curve->knots) return false;
-
-        /* Validate knot ordering */
-        for (i = 1; i < curve->num_knots; i++) {
-            if (curve->knots[i] < curve->knots[i-1]) return false;
-        }
-
-        /* Validate clamping */
-        for (i = 1; i <= curve->degree; i++) {
-            if (fabs(curve->knots[i] - curve->knots[0]) > NURBS_EPSILON) return false;
-            if (fabs(curve->knots[curve->num_knots - 1 - i] -
-                    curve->knots[curve->num_knots - 1]) > NURBS_EPSILON) return false;
-        }
-
-        /* Validate normalization */
-        if (fabs(curve->knots[0]) > NURBS_EPSILON) return false;
-        if (fabs(curve->knots[curve->num_knots - 1] - 1.0) > NURBS_EPSILON) return false;
-    }
-
-    return true;
+	/* Use control points for approximate bbox */
+	if (nurbs->ctrl_pts->npoints > 0)
+	{
+		GBOX *box = lwalloc(sizeof(GBOX));
+		ptarray_calculate_gbox_cartesian(nurbs->ctrl_pts, box);
+		nurbs->bbox = box;
+		FLAGS_SET_BBOX(nurbs->flags, 1);
+	}
 }
 
-/*
- * Binomial coefficient calculation
+/**
+ * Generate uniform knot vector
  */
-double lwnurbs_binomial_coefficient(int n, int k)
+double *
+lwnurbs_uniform_knots(uint32_t degree, uint32_t nctrl)
 {
-    int i;
-    double result = 1.0;
+	uint32_t nknots = nctrl + degree + 1;
+	double *knots = lwalloc(sizeof(double) * nknots);
 
-    if (k > n || k < 0) return 0.0;
-    if (k == 0 || k == n) return 1.0;
+	for (uint32_t i = 0; i < nknots; i++)
+	{
+		knots[i] = (double)i / (double)(nknots - 1);
+	}
 
-    if (k > n - k) k = n - k;
-
-    for (i = 0; i < k; i++) {
-        result = result * (n - i) / (i + 1);
-    }
-
-    return result;
+	return knots;
 }
 
-/*
- * Bernstein polynomial for Bezier curves
+/**
+ * Generate clamped knot vector
  */
-double lwnurbs_bernstein_polynomial(int n, int k, double t)
+double *
+lwnurbs_clamped_knots(uint32_t degree, uint32_t nctrl)
 {
-    double coeff = lwnurbs_binomial_coefficient(n, k);
-    return coeff * pow(t, k) * pow(1.0 - t, n - k);
+	uint32_t nknots = nctrl + degree + 1;
+	double *knots = lwalloc(sizeof(double) * nknots);
+
+	/* Clamp start */
+	for (uint32_t i = 0; i <= degree; i++)
+		knots[i] = 0.0;
+
+	/* Internal knots */
+	for (uint32_t i = degree + 1; i < nctrl; i++)
+		knots[i] = (double)(i - degree) / (double)(nctrl - degree);
+
+	/* Clamp end */
+	for (uint32_t i = nctrl; i < nknots; i++)
+		knots[i] = 1.0;
+
+	return knots;
 }
 
-/*
- * B-spline basis function using Cox-de Boor recursion
+/**
+ * Get NURBS degree
  */
-double lwnurbs_bspline_basis(int i, int p, double t, const double *knots, int num_knots)
+uint32_t
+lwnurbs_get_degree(const LWNURBSCURVE *nurbs)
 {
-    double left, right;
-    double left_denom, right_denom;
-
-    if (p == 0) {
-        return (t >= knots[i] && t < knots[i + 1]) ? 1.0 : 0.0;
-    }
-
-    left = 0.0;
-    right = 0.0;
-
-    left_denom = knots[i + p] - knots[i];
-    if (left_denom > NURBS_EPSILON) {
-        left = (t - knots[i]) / left_denom *
-               lwnurbs_bspline_basis(i, p - 1, t, knots, num_knots);
-    }
-
-    right_denom = knots[i + p + 1] - knots[i + 1];
-    if (right_denom > NURBS_EPSILON) {
-        right = (knots[i + p + 1] - t) / right_denom *
-                lwnurbs_bspline_basis(i + 1, p - 1, t, knots, num_knots);
-    }
-
-    return left + right;
+	return nurbs ? nurbs->degree : 0;
 }
 
-/*
- * Evaluate point on NURBS curve at parameter t
+/**
+ * Get number of control points
  */
-void lwnurbscurve_evaluate_point(const LWNURBSCURVE *curve, double t, POINT4D *result)
+uint32_t
+lwnurbs_get_npoints(const LWNURBSCURVE *nurbs)
 {
-    double px = 0.0, py = 0.0, pz = 0.0, weight_sum = 0.0;
-    POINT4D point;
-    double basis_value, weighted_basis;
-    int i;
-    bool has_z = FLAGS_GET_Z(curve->flags);
-    bool has_m = FLAGS_GET_M(curve->flags);
-
-    if (!curve || !result) return;
-
-    /* Clamp parameter to [0,1] */
-    if (t < 0.0) t = 0.0;
-    if (t > 1.0) t = 1.0;
-
-    /* Evaluate curve based on type */
-    if (curve->type == BEZIERCURVETYPE) {
-        /* Bezier curve evaluation using Bernstein polynomials */
-        for (i = 0; i < curve->num_points; i++) {
-            getPoint4d_p(curve->points, i, &point);
-            basis_value = lwnurbs_bernstein_polynomial(curve->degree, i, t);
-
-            if (has_m && point.m != 1.0) {
-                /* Rational curve */
-                weighted_basis = basis_value * point.m;
-                px += weighted_basis * point.x / point.m;
-                py += weighted_basis * point.y / point.m;
-                if (has_z) pz += weighted_basis * point.z / point.m;
-                weight_sum += weighted_basis;
-            } else {
-                /* Non-rational curve */
-                px += basis_value * point.x;
-                py += basis_value * point.y;
-                if (has_z) pz += basis_value * point.z;
-            }
-        }
-
-        if (has_m && weight_sum > NURBS_EPSILON) {
-            px /= weight_sum;
-            py /= weight_sum;
-            if (has_z) pz /= weight_sum;
-        }
-
-    } else if (curve->type == NURBSCURVETYPE) {
-        /* NURBS curve evaluation using B-spline basis functions */
-        for (i = 0; i < curve->num_points; i++) {
-            getPoint4d_p(curve->points, i, &point);
-            basis_value = lwnurbs_bspline_basis(i, curve->degree, t,
-                                              curve->knots, curve->num_knots);
-
-            weighted_basis = basis_value * (has_m ? point.m : 1.0);
-            px += weighted_basis * point.x / (has_m ? point.m : 1.0);
-            py += weighted_basis * point.y / (has_m ? point.m : 1.0);
-            if (has_z) pz += weighted_basis * point.z / (has_m ? point.m : 1.0);
-            weight_sum += weighted_basis;
-        }
-
-        if (weight_sum > NURBS_EPSILON) {
-            px /= weight_sum;
-            py /= weight_sum;
-            if (has_z) pz /= weight_sum;
-        }
-    }
-
-    /* Set result */
-    result->x = px;
-    result->y = py;
-    result->z = has_z ? pz : 0.0;
-    result->m = 0.0;
+	return (nurbs && nurbs->ctrl_pts) ? nurbs->ctrl_pts->npoints : 0;
 }
 
-/*
- * Convert NURBS curve to linestring by sampling
+/**
+ * Get start point
  */
-LWLINE* lwnurbscurve_to_linestring(const LWNURBSCURVE *curve, int num_segments)
+int
+lwnurbs_startpoint(const LWNURBSCURVE *nurbs, POINT4D *pt)
 {
-    POINTARRAY *pa;
-    POINT4D point;
-    double step, t;
-    int i;
-
-    if (!curve || num_segments < 1) return NULL;
-
-    /* Create point array */
-    pa = ptarray_construct(FLAGS_GET_Z(curve->flags),
-                          FLAGS_GET_M(curve->flags),
-                          num_segments + 1);
-
-    step = 1.0 / num_segments;
-
-    /* Sample points along curve */
-    for (i = 0; i <= num_segments; i++) {
-        t = i * step;
-        lwnurbscurve_evaluate_point(curve, t, &point);
-        ptarray_set_point4d(pa, i, &point);
-    }
-
-    return lwline_construct(curve->srid, NULL, pa);
+	return lwnurbs_interpolate_point(nurbs, 0.0, pt);
 }
 
-/*
- * Calculate approximate curve length
+/**
+ * Get end point
  */
-double lwnurbscurve_length(const LWNURBSCURVE *curve, int num_segments)
+int
+lwnurbs_endpoint(const LWNURBSCURVE *nurbs, POINT4D *pt)
 {
-    POINT4D p1, p2;
-    double length = 0.0;
-    double step, t;
-    int i;
-    bool has_z;
-
-    if (!curve || num_segments < 1) return 0.0;
-
-    has_z = FLAGS_GET_Z(curve->flags);
-    step = 1.0 / num_segments;
-
-    lwnurbscurve_evaluate_point(curve, 0.0, &p1);
-
-    for (i = 1; i <= num_segments; i++) {
-        t = i * step;
-        lwnurbscurve_evaluate_point(curve, t, &p2);
-
-        length += sqrt(pow(p2.x - p1.x, 2) + pow(p2.y - p1.y, 2) +
-                      (has_z ? pow(p2.z - p1.z, 2) : 0));
-
-        p1 = p2;
-    }
-
-    return length;
+	return lwnurbs_interpolate_point(nurbs, 1.0, pt);
 }
 
-/*
- * Compute bounding box of NURBS curve
+/**
+ * Convert NURBS to LWGEOM
  */
-GBOX* lwnurbscurve_compute_bbox(const LWNURBSCURVE *curve)
+LWGEOM *
+lwnurbs_as_lwgeom(const LWNURBSCURVE *nurbs)
 {
-    GBOX *bbox;
-    POINT4D point;
-    double step, t;
-    int i, num_samples = 100;  /* Sample 100 points for bbox estimation */
-
-    if (!curve) return NULL;
-
-    bbox = gbox_new(curve->flags);
-
-    /* Sample points along curve to estimate bounding box */
-    step = 1.0 / (num_samples - 1);
-
-    for (i = 0; i < num_samples; i++) {
-        t = i * step;
-        lwnurbscurve_evaluate_point(curve, t, &point);
-
-        if (i == 0) {
-            bbox->xmin = bbox->xmax = point.x;
-            bbox->ymin = bbox->ymax = point.y;
-            if (FLAGS_GET_Z(curve->flags)) {
-                bbox->zmin = bbox->zmax = point.z;
-            }
-            if (FLAGS_GET_M(curve->flags)) {
-                bbox->mmin = bbox->mmax = point.m;
-            }
-        } else {
-            bbox->xmin = FP_MIN(bbox->xmin, point.x);
-            bbox->xmax = FP_MAX(bbox->xmax, point.x);
-            bbox->ymin = FP_MIN(bbox->ymin, point.y);
-            bbox->ymax = FP_MAX(bbox->ymax, point.y);
-            if (FLAGS_GET_Z(curve->flags)) {
-                bbox->zmin = FP_MIN(bbox->zmin, point.z);
-                bbox->zmax = FP_MAX(bbox->zmax, point.z);
-            }
-            if (FLAGS_GET_M(curve->flags)) {
-                bbox->mmin = FP_MIN(bbox->mmin, point.m);
-                bbox->mmax = FP_MAX(bbox->mmax, point.m);
-            }
-        }
-    }
-
-    return bbox;
+	return (LWGEOM*)nurbs;
 }
 
-/*
- * Generate uniform clamped knot vector
+/**
+ * Convert LWGEOM to NURBS (with type check)
  */
-double* lwnurbs_uniform_knots(uint32_t num_points, uint32_t degree)
+LWNURBSCURVE *
+lwgeom_as_lwnurbs(const LWGEOM *lwgeom)
 {
-    double *knots;
-    uint32_t num_knots;
-    uint32_t internal_knots;
-    double step;
-    int i;
-
-    num_knots = num_points + degree + 1;
-    internal_knots = num_knots - 2 * (degree + 1);
-
-    knots = lwalloc(num_knots * sizeof(double));
-    if (!knots) return NULL;
-
-    /* Clamp at start */
-    for (i = 0; i <= degree; i++) {
-        knots[i] = 0.0;
-    }
-
-    /* Internal knots uniformly spaced */
-    if (internal_knots > 0) {
-        step = 1.0 / (internal_knots + 1);
-        for (i = 0; i < internal_knots; i++) {
-            knots[degree + 1 + i] = (i + 1) * step;
-        }
-    }
-
-    /* Clamp at end */
-    for (i = 0; i <= degree; i++) {
-        knots[num_knots - 1 - i] = 1.0;
-    }
-
-    return knots;
+	if (!lwgeom || lwgeom->type != NURBSCURVETYPE)
+		return NULL;
+	return (LWNURBSCURVE*)lwgeom;
 }
 
-/*
- * Validate knot vector
+/* WKB and WKT functions would be implemented here following PostGIS patterns,
+ * but are omitted for brevity. They would follow the same patterns as
+ * lwcircstring_to_wkb_buf, lwcircstring_from_wkb_state, etc.
  */
-bool lwnurbs_validate_knots(const double *knots, uint32_t num_knots, uint32_t degree)
+
+/**
+ * WKB serialization size calculation
+ */
+size_t
+lwnurbs_to_wkb_size(const LWNURBSCURVE *nurbs, uint8_t variant)
 {
-    int i;
+	size_t size = WKB_BYTE_SIZE + WKB_INT_SIZE + WKB_INT_SIZE; /* endian + type + npoints */
+	if (nurbs && nurbs->ctrl_pts)
+	{
+		size += sizeof(double) * FLAGS_NDIMS(nurbs->flags) * nurbs->ctrl_pts->npoints;
+		size += sizeof(uint32_t); /* degree */
+		size += sizeof(uint32_t) + nurbs->nweights * sizeof(double); /* weights */
+		size += sizeof(uint32_t) + nurbs->nknots * sizeof(double); /* knots */
+	}
 
-    if (!knots || num_knots == 0) return false;
-
-    /* Check ordering */
-    for (i = 1; i < num_knots; i++) {
-        if (knots[i] < knots[i-1]) return false;
-    }
-
-    /* Check normalization */
-    if (fabs(knots[0]) > NURBS_EPSILON) return false;
-    if (fabs(knots[num_knots - 1] - 1.0) > NURBS_EPSILON) return false;
-
-    /* Check clamping */
-    for (i = 1; i <= degree; i++) {
-        if (fabs(knots[i] - knots[0]) > NURBS_EPSILON) return false;
-        if (fabs(knots[num_knots - 1 - i] - knots[num_knots - 1]) > NURBS_EPSILON) return false;
-    }
-
-    return true;
+	return size;
 }
 
-/*
- * Create POINTARRAY with weights in M coordinate
+/**
+ * Simple WKT output (basic implementation)
  */
-POINTARRAY* lwnurbs_points_with_weights(const POINT4D *points, const double *weights,
-                                       uint32_t num_points, lwflags_t flags)
+char *
+lwnurbs_to_wkt(const LWNURBSCURVE *nurbs, uint8_t variant, int precision, size_t *size_out)
 {
-    POINTARRAY *pa;
-    POINT4D point;
-    int i;
+	char *result;
 
-    /* Force M coordinate for weights */
-    FLAGS_SET_M(flags, 1);
+	if (lwnurbs_is_empty(nurbs))
+	{
+		result = lwalloc(32);
+		strcpy(result, "NURBSCURVE EMPTY");
+		if (size_out) *size_out = strlen(result);
+		return result;
+	}
 
-    pa = ptarray_construct(FLAGS_GET_Z(flags), FLAGS_GET_M(flags), num_points);
-    if (!pa) return NULL;
+	/* For now, convert to linestring and output that */
+	LWLINE *line = lwnurbs_to_linestring(nurbs, NURBS_DEFAULT_SAMPLES);
+	if (line)
+	{
+		result = lwgeom_to_wkt((LWGEOM*)line, variant, precision, size_out);
+		lwline_free(line);
+		return result;
+	}
 
-    for (i = 0; i < num_points; i++) {
-        point = points[i];
-        point.m = weights ? weights[i] : 1.0;
-        ptarray_set_point4d(pa, i, &point);
-    }
-
-    return pa;
+	result = lwalloc(32);
+	strcpy(result, "NURBSCURVE EMPTY");
+	if (size_out) *size_out = strlen(result);
+	return result;
 }
 
-/*
- * Helper: Create quadratic Bezier curve
- */
-LWBEZIERCURVE* lwbeziercurve_quadratic(uint32_t srid, POINT4D p1, POINT4D p2, POINT4D p3)
+uint8_t *
+lwnurbs_to_wkb_buf(const LWNURBSCURVE *nurbs, uint8_t *buf, uint8_t variant)
 {
-    POINT4D points[3] = {p1, p2, p3};
-    POINTARRAY *pa = lwnurbs_points_with_weights(points, NULL, 3, 0);
-	lwflags_t flags = 0;
-	FLAGS_SET_M(flags, 1);
-    LWBEZIERCURVE *curve = lwbeziercurve_construct(srid, flags, 2, pa);
-    ptarray_free(pa);
-    return curve;
+	// TODO: FIX: Convert to linestring atm
+	LWLINE *line = lwnurbs_to_linestring(nurbs, NURBS_DEFAULT_SAMPLES);
+	if (line)
+	{
+		buf = lwgeom_to_wkb_buf((LWGEOM*)line, buf, variant);
+		lwline_free(line);
+	}
+	return buf;
 }
 
-/*
- * Helper: Create cubic Bezier curve
- */
-LWBEZIERCURVE* lwbeziercurve_cubic(uint32_t srid, POINT4D p1, POINT4D p2, POINT4D p3, POINT4D p4)
+LWNURBSCURVE *
+lwnurbs_from_wkb_state(wkb_parse_state *s)
 {
-    POINT4D points[4] = {p1, p2, p3, p4};
-    POINTARRAY *pa = lwnurbs_points_with_weights(points, NULL, 4, 0);
-	lwflags_t flags = 0;
-	FLAGS_SET_M(flags, 1);
-    LWBEZIERCURVE *curve = lwbeziercurve_construct(srid, flags, 3, pa);
-    ptarray_free(pa);
-    return curve;
-}
-
-/*
- * Helper: Create NURBS circle approximation
- */
-LWNURBSCURVE* lwnurbscurve_circle(uint32_t srid, POINT4D center, double radius)
-{
-    POINT4D points[9];
-    double weights[9] = {1.0, M_SQRT1_2, 1.0, M_SQRT1_2, 1.0, M_SQRT1_2, 1.0, M_SQRT1_2, 1.0};
-    double knots[12] = {0, 0, 0, 0.25, 0.25, 0.5, 0.5, 0.75, 0.75, 1, 1, 1};
-    POINTARRAY *pa;
-    LWNURBSCURVE *curve;
-    double cx = center.x, cy = center.y;
-
-    /* 9 control points for rational quadratic NURBS circle */
-    points[0] = (POINT4D){cx + radius, cy, center.z, 1.0};
-    points[1] = (POINT4D){cx + radius, cy + radius, center.z, M_SQRT1_2};
-    points[2] = (POINT4D){cx, cy + radius, center.z, 1.0};
-    points[3] = (POINT4D){cx - radius, cy + radius, center.z, M_SQRT1_2};
-    points[4] = (POINT4D){cx - radius, cy, center.z, 1.0};
-    points[5] = (POINT4D){cx - radius, cy - radius, center.z, M_SQRT1_2};
-    points[6] = (POINT4D){cx, cy - radius, center.z, 1.0};
-    points[7] = (POINT4D){cx + radius, cy - radius, center.z, M_SQRT1_2};
-    points[8] = (POINT4D){cx + radius, cy, center.z, 1.0};
-
-    pa = lwnurbs_points_with_weights(points, weights, 9, FLAGS_GET_Z(center.z != 0.0) ? 1 : 0);
-
-    lwflags_t flags = 0;
-    FLAGS_SET_M(flags, FLAGS_GET_Z(center.z != 0.0) ? 1 : 0);
-    curve = lwnurbscurve_construct(srid, flags, 2, pa, 12, knots);
-    ptarray_free(pa);
-
-    return curve;
-}
-
-/*
- * Convert NURBS curve to generic LWGEOM
- */
-LWGEOM* lwgeom_from_nurbscurve(const LWNURBSCURVE *curve)
-{
-    return (LWGEOM*)curve;
-}
-
-/*
- * Cast LWGEOM to NURBS curve (with type checking)
- */
-LWNURBSCURVE* lwgeom_as_nurbscurve(const LWGEOM *lwgeom)
-{
-    if (!lwgeom || !IS_NURBS_TYPE(lwgeom->type)) return NULL;
-    return (LWNURBSCURVE*)lwgeom;
+	// TODO: FIX: Convert to empty atm
+	return lwnurbs_construct_empty(s->srid, s->has_z, s->has_m);
 }

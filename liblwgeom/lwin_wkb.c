@@ -29,6 +29,7 @@
 #include "lwgeom_log.h"
 #include <math.h>
 #include <limits.h>
+#include "lwgeom_nurbs.h"
 
 /** Max depth in a geometry. Matches the default YYINITDEPTH for WKT */
 #define LW_PARSER_MAX_DEPTH 200
@@ -817,7 +818,9 @@ LWGEOM* lwgeom_from_wkb_state(wkb_parse_state *s)
 		case COLLECTIONTYPE:
 			return (LWGEOM*)lwcollection_from_wkb_state(s);
 			break;
-
+		case NURBSCURVETYPE:
+			return (LWGEOM*)lwnurbs_from_wkb_state(s);
+			break;
 		/* Unknown type! */
 		default:
 			lwerror("%s: Unsupported geometry type: %s", __func__, lwtype_name(s->lwtype));

@@ -28,6 +28,7 @@
 
 #include "liblwgeom_internal.h"
 #include "lwgeom_log.h"
+#include "lwgeom_nurbs.h"
 
 static uint8_t* lwgeom_to_wkb_buf(const LWGEOM *geom, uint8_t *buf, uint8_t variant);
 static size_t lwgeom_to_wkb_size(const LWGEOM *geom, uint8_t variant);
@@ -725,6 +726,9 @@ lwgeom_to_wkb_size(const LWGEOM *geom, uint8_t variant)
 		case TINTYPE:
 			size += lwcollection_to_wkb_size((LWCOLLECTION*)geom, variant);
 			break;
+		case NURBSCURVETYPE:
+    	size += lwnurbs_to_wkb_size((LWNURBSCURVE*)geom, variant);
+			break;
 
 		/* Unknown type! */
 		default:
@@ -773,7 +777,8 @@ static uint8_t* lwgeom_to_wkb_buf(const LWGEOM *geom, uint8_t *buf, uint8_t vari
 		case POLYHEDRALSURFACETYPE:
 		case TINTYPE:
 			return lwcollection_to_wkb_buf((LWCOLLECTION*)geom, buf, variant);
-
+		case NURBSCURVETYPE:
+			return lwnurbs_to_wkb_buf((LWNURBSCURVE*)geom, buf, variant);
 		/* Unknown type! */
 		default:
 			lwerror("%s: Unsupported geometry type: %s", __func__, lwtype_name(geom->type));
