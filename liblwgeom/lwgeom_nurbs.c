@@ -44,24 +44,65 @@ lwnurbs_construct(int32_t srid, GBOX *bbox, uint32_t degree,
 	/* Basic validation */
 	if (degree < NURBS_MIN_DEGREE || degree > NURBS_MAX_DEGREE)
 	{
-		lwerror("lwnurbs_construct: invalid degree %d", degree);
+		lwnotice("lwnurbs_construct: invalid degree %d", degree);
 		return NULL;
 	}
 
-	if (ctrl_pts && ctrl_pts->npoints < NURBS_MIN_POINTS)
+	if (!ctrl_pts)
 	{
-		lwerror("lwnurbs_construct: minimum %d control points required", NURBS_MIN_POINTS);
+		lwnotice("lwnurbs_construct: ctrl_pts is NULL");
 		return NULL;
 	}
+
+	if (ctrl_pts->npoints < NURBS_MIN_POINTS)
+	{
+		lwnotice("lwnurbs_construct: minimum %d control points required, got %d",
+		         NURBS_MIN_POINTS, ctrl_pts->npoints);
+		return NULL;
+	}
+
+	/* Validate knots */
+	uint32_t expected_knots = ctrl_pts->npoints + degree + 1;
+	if (nknots != expected_knots)
+	{
+		lwnotice("lwnurbs_construct: expected %d knots, got %d", expected_knots, nknots);
+		return NULL;
+	}
+
+	if (!knots)
+	{
+		lwnotice("lwnurbs_construct: knots array is NULL");
+		return NULL;
+	}
+
+	/* Validate weights if provided */
+	if (weights && nweights != ctrl_pts->npoints)
+	{
+		lwnotice("lwnurbs_construct: weights count (%d) doesn't match control points (%d)",
+		         nweights, ctrl_pts->npoints);
+		return NULL;
+	}
+
+	lwnotice("lwnurbs_construct: creating NURBS with degree=%d, npoints=%d, nknots=%d",
+	         degree, ctrl_pts->npoints, nknots);
 
 	result = (LWNURBSCURVE*) lwalloc(sizeof(LWNURBSCURVE));
 	result->type = NURBSCURVETYPE;
-	result->flags = ctrl_pts ? ctrl_pts->flags : lwflags(0, 0, 0);
+	result->flags = ctrl_pts->flags;
 	FLAGS_SET_BBOX(result->flags, bbox ? 1 : 0);
 	result->srid = srid;
-	result->bbox = bbox;
+	result->bbox = bbox ? gbox_clone(bbox) : NULL;
 	result->degree = degree;
-	result->ctrl_pts = ctrl_pts;
+
+	/* Clone the control points array */
+	result->ctrl_pts = ptarray_clone_deep(ctrl_pts);
+	if (!result->ctrl_pts)
+	{
+		lwnotice("lwnurbs_construct: failed to clone control points");
+		lwfree(result);
+		return NULL;
+	}
+
 	result->nweights = nweights;
 	result->nknots = nknots;
 
@@ -70,23 +111,26 @@ lwnurbs_construct(int32_t srid, GBOX *bbox, uint32_t degree,
 	{
 		result->weights = (double*) lwalloc(sizeof(double) * nweights);
 		memcpy(result->weights, weights, sizeof(double) * nweights);
+		lwnotice("lwnurbs_construct: copied %d weights", nweights);
 	}
 	else
 	{
 		result->weights = NULL;
+		lwnotice("lwnurbs_construct: no weights provided");
 	}
 
-	/* Copy knots if provided */
-	if (knots && nknots > 0)
-	{
-		result->knots = (double*) lwalloc(sizeof(double) * nknots);
-		memcpy(result->knots, knots, sizeof(double) * nknots);
-	}
-	else
-	{
-		result->knots = NULL;
-	}
+	/* Copy knots */
+	result->knots = (double*) lwalloc(sizeof(double) * nknots);
+	memcpy(result->knots, knots, sizeof(double) * nknots);
+	lwnotice("lwnurbs_construct: copied %d knots", nknots);
 
+	/* Debug: print first few knots */
+	lwnotice("lwnurbs_construct: knots[0]=%g, knots[1]=%g, knots[%d]=%g",
+	         result->knots[0],
+	         nknots > 1 ? result->knots[1] : 0.0,
+	         nknots-1, result->knots[nknots-1]);
+
+	lwnotice("lwnurbs_construct: NURBS curve created successfully");
 	return result;
 }
 
@@ -141,17 +185,46 @@ lwnurbs_release(LWNURBSCURVE *nurbs)
 /**
  * B-spline basis function implementation (De Boor algorithm)
  */
+/* Dans lwgeom_nurbs.c, fonction bspline_basis avec debug */
+
 double
 bspline_basis(int i, int p, double t, const double *knots, int nknots)
 {
+	if (!knots || nknots <= 0)
+	{
+		lwnotice("bspline_basis: NULL knots or invalid nknots=%d", nknots);
+		return 0.0;
+	}
+
+	if (i < 0 || i >= nknots - p - 1)
+	{
+		lwnotice("bspline_basis: index i=%d out of range [0, %d]", i, nknots - p - 1);
+		return 0.0;
+	}
+
 	if (p == 0)
 	{
 		if (i >= 0 && i < nknots - 1 && t >= knots[i] && t < knots[i + 1])
+		{
+			lwnotice("bspline_basis: p=0, i=%d, t=%g in [%g, %g) -> 1.0",
+	    i, t, knots[i], knots[i + 1]);
 			return 1.0;
+		}
 		else if (i == nknots - 2 && fabs(t - knots[nknots - 1]) < NURBS_TOLERANCE)
+		{
+			lwnotice("bspline_basis: p=0, i=%d, t=%g at end knot %g -> 1.0",
+	    i, t, knots[nknots - 1]);
 			return 1.0;
+		}
 		else
+	{
+			if (i < 3)  // Debug
+			{
+				lwnotice("bspline_basis: p=0, i=%d, t=%g not in [%g, %g) -> 0.0",
+	     i, t, knots[i], knots[i + 1]);
+			}
 			return 0.0;
+		}
 	}
 
 	double left = 0.0, right = 0.0;
@@ -159,16 +232,24 @@ bspline_basis(int i, int p, double t, const double *knots, int nknots)
 	if (i + p < nknots && fabs(knots[i + p] - knots[i]) > NURBS_TOLERANCE)
 	{
 		left = (t - knots[i]) / (knots[i + p] - knots[i]) *
-		       bspline_basis(i, p - 1, t, knots, nknots);
+			bspline_basis(i, p - 1, t, knots, nknots);
 	}
 
 	if (i + p + 1 < nknots && fabs(knots[i + p + 1] - knots[i + 1]) > NURBS_TOLERANCE)
 	{
 		right = (knots[i + p + 1] - t) / (knots[i + p + 1] - knots[i + 1]) *
-		        bspline_basis(i + 1, p - 1, t, knots, nknots);
+			bspline_basis(i + 1, p - 1, t, knots, nknots);
 	}
 
-	return left + right;
+	double result = left + right;
+
+	if (i < 3 && p <= 2)  // Debug
+	{
+		lwnotice("bspline_basis: i=%d, p=%d, t=%g -> %g (left=%g, right=%g)",
+	   i, p, t, result, left, right);
+	}
+
+	return result;
 }
 
 /**
@@ -182,6 +263,20 @@ lwnurbs_interpolate_point(const LWNURBSCURVE *nurbs, double t, POINT4D *pt)
 
 	if (nurbs->ctrl_pts->npoints == 0)
 		return LW_FAILURE;
+
+
+	if (!nurbs->knots || nurbs->nknots == 0)
+	{
+		lwnotice("NURBS curve has no knot vector");
+		return LW_FAILURE;
+	}
+	uint32_t expected_knots = nurbs->ctrl_pts->npoints + nurbs->degree + 1;
+	if (nurbs->nknots != expected_knots)
+	{
+		lwnotice("NURBS curve has incorrect number of knots: %d expected, %d found",
+	   expected_knots, nurbs->nknots);
+		return LW_FAILURE;
+	}
 
 	/* Clamp parameter to [0,1] */
 	if (t < 0.0) t = 0.0;
@@ -198,6 +293,10 @@ lwnurbs_interpolate_point(const LWNURBSCURVE *nurbs, double t, POINT4D *pt)
 	double weight_sum = 0.0;
 	POINT4D ctrl_pt;
 
+
+	lwnotice("Evaluating NURBS at t=%g with %d control points, degree %d, %d knots",
+	  t, n, p, nurbs->nknots);
+
 	for (uint32_t i = 0; i < n; i++)
 	{
 		getPoint4d_p(nurbs->ctrl_pts, i, &ctrl_pt);
@@ -205,7 +304,10 @@ lwnurbs_interpolate_point(const LWNURBSCURVE *nurbs, double t, POINT4D *pt)
 		double basis = bspline_basis(i, p, t, nurbs->knots, nurbs->nknots);
 		double weight = (nurbs->weights && i < nurbs->nweights) ? nurbs->weights[i] : 1.0;
 		double w_basis = weight * basis;
-
+		if (i < 3)  // Debug only fro first three points
+		{
+			lwnotice("Point %d: basis=%g, weight=%g, w_basis=%g", i, basis, weight, w_basis);
+		}
 		pt->x += w_basis * ctrl_pt.x;
 		pt->y += w_basis * ctrl_pt.y;
 		if (hasz) pt->z += w_basis * ctrl_pt.z;
@@ -214,15 +316,19 @@ lwnurbs_interpolate_point(const LWNURBSCURVE *nurbs, double t, POINT4D *pt)
 		weight_sum += w_basis;
 	}
 
-	/* Normalize by weight sum for rational curves */
-	if (weight_sum > NURBS_TOLERANCE)
+	if (weight_sum <= NURBS_TOLERANCE)
 	{
-		pt->x /= weight_sum;
-		pt->y /= weight_sum;
-		if (hasz) pt->z /= weight_sum;
-		if (hasm) pt->m /= weight_sum;
+		lwnotice("NURBS evaluation failed: weight sum too small (%g)", weight_sum);
+		return LW_FAILURE;
 	}
 
+	/* Normalize by weight sum for rational curves */
+	pt->x /= weight_sum;
+	pt->y /= weight_sum;
+	if (hasz) pt->z /= weight_sum;
+	if (hasm) pt->m /= weight_sum;
+
+	lwnotice("NURBS evaluated to point (%g, %g)", pt->x, pt->y);
 	return LW_SUCCESS;
 }
 
@@ -412,21 +518,65 @@ lwnurbs_uniform_knots(uint32_t degree, uint32_t nctrl)
 double *
 lwnurbs_clamped_knots(uint32_t degree, uint32_t nctrl)
 {
+	if (degree < 1 || nctrl < 2)
+	{
+		lwnotice("lwnurbs_clamped_knots: invalid parameters degree=%d, nctrl=%d", degree, nctrl);
+		return NULL;
+	}
+
 	uint32_t nknots = nctrl + degree + 1;
 	double *knots = lwalloc(sizeof(double) * nknots);
 
-	/* Clamp start */
+	if (!knots)
+	{
+		lwnotice("lwnurbs_clamped_knots: failed to allocate memory for %d knots", nknots);
+		return NULL;
+	}
+
+	lwnotice("lwnurbs_clamped_knots: generating %d knots for degree=%d, nctrl=%d",
+	         nknots, degree, nctrl);
+
+	/* Clamp start: first (degree+1) knots = 0.0 */
 	for (uint32_t i = 0; i <= degree; i++)
 		knots[i] = 0.0;
 
-	/* Internal knots */
+	/* Internal knots: linearly spaced between 0 and 1 */
 	for (uint32_t i = degree + 1; i < nctrl; i++)
+	{
 		knots[i] = (double)(i - degree) / (double)(nctrl - degree);
+	}
 
-	/* Clamp end */
+	/* Clamp end: last (degree+1) knots = 1.0 */
 	for (uint32_t i = nctrl; i < nknots; i++)
 		knots[i] = 1.0;
 
+	/* Debug: print the knot vector */
+	lwnotice("lwnurbs_clamped_knots: generated knots:");
+	for (uint32_t i = 0; i < nknots; i++)
+	{
+		if (i < 10 || i >= nknots - 5) // Print first 10 and last 5
+		{
+			lwnotice("  knots[%d] = %g", i, knots[i]);
+		}
+		else if (i == 10)
+		{
+			lwnotice("  ... (%d more knots) ...", nknots - 15);
+		}
+	}
+
+	/* Validate the knot vector */
+	for (uint32_t i = 1; i < nknots; i++)
+	{
+		if (knots[i] < knots[i-1])
+		{
+			lwnotice("lwnurbs_clamped_knots: ERROR - non-monotonic knots at index %d: %g < %g",
+			         i, knots[i], knots[i-1]);
+			lwfree(knots);
+			return NULL;
+		}
+	}
+
+	lwnotice("lwnurbs_clamped_knots: knot vector generated successfully");
 	return knots;
 }
 

@@ -58,9 +58,11 @@ Datum lwgeom_nurbs_make(PG_FUNCTION_ARGS)
 	ArrayType *knots_array = NULL;
 	LWGEOM *control_geom;
 	LWMPOINT *control_mpt = NULL;
+	LWCOLLECTION *control_coll = NULL;
 	POINTARRAY *ctrl_pts;
 	double *weights = NULL;
 	double *knots = NULL;
+	double *generated_knots = NULL;
 	uint32_t nweights = 0, nknots = 0;
 	LWNURBSCURVE *nurbs;
 	GSERIALIZED *result;
@@ -80,38 +82,65 @@ Datum lwgeom_nurbs_make(PG_FUNCTION_ARGS)
 	control_geom = lwgeom_from_gserialized(pcontrol_pts);
 	srid = control_geom->srid;
 
-	/* Convert to MULTIPOINT if necessary */
+	/* Debug: log the geometry type received */
+	elog(NOTICE, "Received geometry type: %s", lwtype_name(control_geom->type));
+
+	/* Create empty control points array */
+	ctrl_pts = ptarray_construct_empty(lwgeom_has_z(control_geom),
+	                                  lwgeom_has_m(control_geom),
+	                                  0);
+
+	/* Handle different geometry types for control points */
 	if (control_geom->type == POINTTYPE)
 	{
-		control_mpt = lwmpoint_construct_empty(srid,
-		                                     lwgeom_has_z(control_geom),
-		                                     lwgeom_has_m(control_geom));
-		lwmpoint_add_lwpoint(control_mpt, (LWPOINT*)control_geom);
-		control_geom = (LWGEOM*)control_mpt;
+		/* Single point */
+		LWPOINT *pt = (LWPOINT*)control_geom;
+		POINT4D p4d;
+		if (getPoint4d_p(pt->point, 0, &p4d))
+		{
+			ptarray_append_point(ctrl_pts, &p4d, LW_FALSE);
+		}
+		elog(NOTICE, "Added 1 control point from POINT");
 	}
 	else if (control_geom->type == MULTIPOINTTYPE)
 	{
+		/* Multipoint */
 		control_mpt = (LWMPOINT*)control_geom;
+		for (uint32_t i = 0; i < control_mpt->ngeoms; i++)
+		{
+			POINT4D p4d;
+			if (getPoint4d_p(control_mpt->geoms[i]->point, 0, &p4d))
+			{
+				ptarray_append_point(ctrl_pts, &p4d, LW_FALSE);
+			}
+		}
+		elog(NOTICE, "Added %d control points from MULTIPOINT", control_mpt->ngeoms);
+	}
+	else if (control_geom->type == COLLECTIONTYPE)
+	{
+		/* GeometryCollection - extract points */
+		control_coll = (LWCOLLECTION*)control_geom;
+		for (uint32_t i = 0; i < control_coll->ngeoms; i++)
+		{
+			if (control_coll->geoms[i]->type == POINTTYPE)
+			{
+				LWPOINT *pt = (LWPOINT*)control_coll->geoms[i];
+				POINT4D p4d;
+				if (getPoint4d_p(pt->point, 0, &p4d))
+				{
+					ptarray_append_point(ctrl_pts, &p4d, LW_FALSE);
+				}
+			}
+		}
+		elog(NOTICE, "Added %d control points from GEOMETRYCOLLECTION", ctrl_pts->npoints);
 	}
 	else
 	{
+		ptarray_free(ctrl_pts);
 		lwgeom_free(control_geom);
 		ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-			errmsg("Control points must be POINT or MULTIPOINT geometry")));
-	}
-
-	/* Extract point array from multipoint */
-	ctrl_pts = ptarray_construct_empty(lwgeom_has_z(control_geom),
-	                                  lwgeom_has_m(control_geom),
-	                                  control_mpt->ngeoms);
-
-	for (uint32_t i = 0; i < control_mpt->ngeoms; i++)
-	{
-		POINT4D pt;
-		if (getPoint4d_p(control_mpt->geoms[i]->point, 0, &pt))
-		{
-			ptarray_append_point(ctrl_pts, &pt, LW_FALSE);
-		}
+			errmsg("Control points must be POINT, MULTIPOINT, or GEOMETRYCOLLECTION geometry, got %s",
+			       lwtype_name(control_geom->type))));
 	}
 
 	if (ctrl_pts->npoints < NURBS_MIN_POINTS)
@@ -119,8 +148,11 @@ Datum lwgeom_nurbs_make(PG_FUNCTION_ARGS)
 		ptarray_free(ctrl_pts);
 		lwgeom_free(control_geom);
 		ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-			errmsg("NURBS curve requires at least %d control points", NURBS_MIN_POINTS)));
+			errmsg("NURBS curve requires at least %d control points, got %d",
+			       NURBS_MIN_POINTS, ctrl_pts->npoints)));
 	}
+
+	elog(NOTICE, "Successfully extracted %d control points", ctrl_pts->npoints);
 
 	/* Get weights array if provided */
 	if (!PG_ARGISNULL(2))
@@ -140,10 +172,16 @@ Datum lwgeom_nurbs_make(PG_FUNCTION_ARGS)
 			ptarray_free(ctrl_pts);
 			lwgeom_free(control_geom);
 			ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				errmsg("Number of weights must equal number of control points")));
+				errmsg("Number of weights (%d) must equal number of control points (%d)",
+				       nweights, ctrl_pts->npoints)));
 		}
 
 		weights = (double*) ARR_DATA_PTR(weights_array);
+		elog(NOTICE, "Using provided weights array with %d elements", nweights);
+	}
+	else
+	{
+		elog(NOTICE, "No weights provided, using uniform weights");
 	}
 
 	/* Get knots array if provided */
@@ -164,24 +202,49 @@ Datum lwgeom_nurbs_make(PG_FUNCTION_ARGS)
 			ptarray_free(ctrl_pts);
 			lwgeom_free(control_geom);
 			ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				errmsg("Insufficient knots for NURBS curve")));
+				errmsg("Insufficient knots: need at least %d, got %d",
+				       ctrl_pts->npoints + degree + 1, nknots)));
 		}
 
 		knots = (double*) ARR_DATA_PTR(knots_array);
+		elog(NOTICE, "Using provided knots array with %d elements", nknots);
 	}
 	else
 	{
 		/* Generate clamped knot vector */
-		knots = lwnurbs_clamped_knots(degree, ctrl_pts->npoints);
+		generated_knots = lwnurbs_clamped_knots(degree, ctrl_pts->npoints);
 		nknots = ctrl_pts->npoints + degree + 1;
+		knots = generated_knots;
+		elog(NOTICE, "Generated clamped knot vector with %d elements", nknots);
+
+		/* Debug: print first few knots */
+		if (knots && nknots > 0)
+		{
+			elog(NOTICE, "First few knots: %g, %g, %g, ...",
+			     knots[0],
+			     nknots > 1 ? knots[1] : 0.0,
+			     nknots > 2 ? knots[2] : 0.0);
+		}
+	}
+
+	/* Validate knots array */
+	if (!knots)
+	{
+		ptarray_free(ctrl_pts);
+		lwgeom_free(control_geom);
+		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR),
+			errmsg("Failed to generate or get knots array")));
 	}
 
 	/* Create NURBS curve */
+	elog(NOTICE, "Creating NURBS curve: degree=%d, npoints=%d, nweights=%d, nknots=%d",
+	     degree, ctrl_pts->npoints, nweights, nknots);
+
 	nurbs = lwnurbs_construct(srid, NULL, degree, ctrl_pts, weights, nweights, knots, nknots);
 
-	/* Free generated knots if we created them */
-	if (PG_ARGISNULL(3) && knots)
-		lwfree(knots);
+	/* Free generated knots AFTER construction */
+	if (generated_knots)
+		lwfree(generated_knots);
 
 	lwgeom_free(control_geom);
 
@@ -191,8 +254,26 @@ Datum lwgeom_nurbs_make(PG_FUNCTION_ARGS)
 			errmsg("Failed to construct NURBS curve")));
 	}
 
+	/* Validate the constructed NURBS */
+	if (!lwnurbs_is_valid(nurbs))
+	{
+		lwnurbs_free(nurbs);
+		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR),
+			errmsg("Constructed NURBS curve is invalid")));
+	}
+
+	elog(NOTICE, "NURBS curve created successfully");
+
 	result = geometry_serialize((LWGEOM*)nurbs);
 	lwnurbs_free(nurbs);
+
+	if (!result)
+	{
+		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR),
+			errmsg("Failed to serialize NURBS curve")));
+	}
+
+	elog(NOTICE, "NURBS curve serialized successfully");
 
 	PG_RETURN_POINTER(result);
 }

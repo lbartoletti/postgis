@@ -697,6 +697,7 @@ static void lwgeom_to_wkt_sb(const LWGEOM *geom, stringbuffer_t *sb, int precisi
 		lwpsurface_to_wkt_sb((LWPSURFACE*)geom, sb, precision, variant);
 		break;
 	case NURBSCURVETYPE:
+		lwnotice("nurbscurve wkt");
     		lwnurbs_to_wkt_sb((LWNURBSCURVE*)geom, sb, precision, variant);
 		break;
 	default:
@@ -753,6 +754,7 @@ lwgeom_to_wkt(const LWGEOM *geom, uint8_t variant, int precision, size_t *size_o
 lwvarlena_t *
 lwgeom_to_wkt_varlena(const LWGEOM *geom, uint8_t variant, int precision)
 {
+	lwnotice("varlena %s.", lwtype_name(geom->type));
 	stringbuffer_t *sb = lwgeom_to_wkt_internal(geom, variant, precision);
 	if (!sb)
 		return NULL;
