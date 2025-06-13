@@ -158,7 +158,7 @@ Datum LWGEOM_getTYPE(PG_FUNCTION_ARGS)
 		strcpy(result,"POLYHEDRALSURFACE");
 	else if (type == TINTYPE)
 		strcpy(result,"TIN");
-	else if (type == NURBSCURVETYPE);
+	else if (type == NURBSCURVETYPE)
 		strcpy(result,"NURBSCURVE");
 	else
 		strcpy(result,"UNKNOWN");

@@ -881,3 +881,17 @@ lwgeom_to_hexwkb_varlena(const LWGEOM *geom, uint8_t variant)
 {
 	return lwgeom_to_wkb_varlena(geom, variant | WKB_HEX);
 }
+
+uint8_t *
+lwnurbs_to_wkb_buf(const LWNURBSCURVE *nurbs, uint8_t *buf, uint8_t variant)
+{
+	// TODO: FIX: Convert to linestring atm
+	LWLINE *line = lwnurbs_to_linestring(nurbs, NURBS_DEFAULT_SAMPLES);
+	if (line)
+	{
+		buf = lwgeom_to_wkb_buf((LWGEOM*)line, buf, variant);
+		lwline_free(line);
+	}
+	return buf;
+}
+

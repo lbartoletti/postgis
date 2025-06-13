@@ -7,7 +7,7 @@
 #include "lwin_wkt.h"
 #include "lwin_wkt_parse.h"
 #include "lwgeom_log.h"
-
+#include "lwgeom_nurbs.h"
 
 /* Prototypes to quiet the compiler */
 int wkt_yyparse(void);

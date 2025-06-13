@@ -30,29 +30,7 @@
 #include <math.h>
 #include <limits.h>
 #include "lwgeom_nurbs.h"
-
-/** Max depth in a geometry. Matches the default YYINITDEPTH for WKT */
-#define LW_PARSER_MAX_DEPTH 200
-
-/**
-* Used for passing the parse state between the parsing functions.
-*/
-typedef struct
-{
-	const uint8_t *wkb; /* Points to start of WKB */
-	int32_t srid;    /* Current SRID we are handling */
-	size_t wkb_size; /* Expected size of WKB */
-	int8_t swap_bytes;  /* Do an endian flip? */
-	int8_t check;       /* Simple validity checks on geometries */
-	int8_t lwtype;      /* Current type we are handling */
-	int8_t has_z;       /* Z? */
-	int8_t has_m;       /* M? */
-	int8_t has_srid;    /* SRID? */
-	int8_t error;       /* An error was found (not enough bytes to read) */
-	uint8_t depth;      /* Current recursion level (to prevent stack overflows). Maxes at LW_PARSER_MAX_DEPTH */
-	const uint8_t *pos; /* Current parse position */
-} wkb_parse_state;
-
+#include "lwin.h"
 
 /**
 * Internal function declarations.

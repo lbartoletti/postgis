@@ -26,9 +26,7 @@
 #define _LWGEOM_NURBS_H 1
 
 #include "liblwgeom.h"
-
-/* Forward declaration */
-typedef struct wkb_parse_state_t wkb_parse_state;
+#include "lwin.h"
 
 /**
  * NURBS curve constants
@@ -88,13 +86,10 @@ extern void lwnurbs_compute_bbox_p(LWNURBSCURVE *nurbs);
 extern double *lwnurbs_uniform_knots(uint32_t degree, uint32_t nctrl);
 extern double *lwnurbs_clamped_knots(uint32_t degree, uint32_t nctrl);
 
-/* WKB serialization - only declare if wkb_parse_state is available */
-#ifdef LIBLWGEOM_INTERNAL_H
+/* WKB serialization */
 extern uint8_t *lwnurbs_to_wkb_buf(const LWNURBSCURVE *nurbs, uint8_t *buf,
                                   uint8_t variant);
-extern LWNURBSCURVE *lwnurbs_from_wkb_state(wkb_parse_state *s);
 extern size_t lwnurbs_to_wkb_size(const LWNURBSCURVE *nurbs, uint8_t variant);
-#endif
 
 /* WKT serialization */
 extern char *lwnurbs_to_wkt(const LWNURBSCURVE *nurbs, uint8_t variant,
@@ -105,6 +100,9 @@ extern uint32_t lwnurbs_get_degree(const LWNURBSCURVE *nurbs);
 extern uint32_t lwnurbs_get_npoints(const LWNURBSCURVE *nurbs);
 extern int lwnurbs_startpoint(const LWNURBSCURVE *nurbs, POINT4D *pt);
 extern int lwnurbs_endpoint(const LWNURBSCURVE *nurbs, POINT4D *pt);
+
+/* Forward declaration for WKB functions */
+extern LWNURBSCURVE *lwnurbs_from_wkb_state(wkb_parse_state *s);
 
 /* Type conversion */
 extern LWGEOM *lwnurbs_as_lwgeom(const LWNURBSCURVE *nurbs);

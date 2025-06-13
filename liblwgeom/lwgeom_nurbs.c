@@ -27,6 +27,7 @@
 #include <string.h>
 #include <math.h>
 #include "liblwgeom_internal.h"
+#include "stringbuffer.h"
 #include "lwgeom_log.h"
 #include "lwgeom_nurbs.h"
 
@@ -485,11 +486,6 @@ lwgeom_as_lwnurbs(const LWGEOM *lwgeom)
 	return (LWNURBSCURVE*)lwgeom;
 }
 
-/* WKB and WKT functions would be implemented here following PostGIS patterns,
- * but are omitted for brevity. They would follow the same patterns as
- * lwcircstring_to_wkb_buf, lwcircstring_from_wkb_state, etc.
- */
-
 /**
  * WKB serialization size calculation
  */
@@ -537,19 +533,6 @@ lwnurbs_to_wkt(const LWNURBSCURVE *nurbs, uint8_t variant, int precision, size_t
 	strcpy(result, "NURBSCURVE EMPTY");
 	if (size_out) *size_out = strlen(result);
 	return result;
-}
-
-uint8_t *
-lwnurbs_to_wkb_buf(const LWNURBSCURVE *nurbs, uint8_t *buf, uint8_t variant)
-{
-	// TODO: FIX: Convert to linestring atm
-	LWLINE *line = lwnurbs_to_linestring(nurbs, NURBS_DEFAULT_SAMPLES);
-	if (line)
-	{
-		buf = lwgeom_to_wkb_buf((LWGEOM*)line, buf, variant);
-		lwline_free(line);
-	}
-	return buf;
 }
 
 LWNURBSCURVE *
