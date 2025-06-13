@@ -1,0 +1,23 @@
+-----------------------------------------------------------------------
+-- NURBS
+-----------------------------------------------------------------------
+-- Availability: 3.7.0
+
+-- NURBS curve creation
+CREATE OR REPLACE FUNCTION ST_MakeNurbsCurve(integer, geometry)
+    RETURNS geometry AS 'MODULE_PATHNAME', 'ST_MakeNurbsCurve'
+    LANGUAGE 'c' IMMUTABLE STRICT;
+
+-- NURBS to linestring conversion
+CREATE OR REPLACE FUNCTION ST_NurbsToLine(geometry, integer)
+    RETURNS geometry AS 'MODULE_PATHNAME', 'ST_NurbsToLine'
+    LANGUAGE 'c' IMMUTABLE STRICT;
+
+CREATE OR REPLACE FUNCTION ST_NurbsToLine(geometry)
+    RETURNS geometry AS $$ SELECT ST_NurbsToLine($1, 32) $$
+    LANGUAGE 'sql' IMMUTABLE STRICT;
+
+CREATE OR REPLACE FUNCTION ST_MakeBezier(geometry)
+    RETURNS geometry AS 'MODULE_PATHNAME', 'ST_MakeBezier'
+    LANGUAGE 'c' IMMUTABLE STRICT;
+

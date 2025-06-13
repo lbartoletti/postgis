@@ -609,6 +609,26 @@ static void lwpsurface_to_wkt_sb(const LWPSURFACE *psurf, stringbuffer_t *sb, in
 	stringbuffer_append_len(sb, ")", 1);
 }
 
+/*
+ * NURBSCURVE
+ */
+static void lwnurbscurve_to_wkt_sb(const LWNURBSCURVE *curve, stringbuffer_t *sb, int precision, uint8_t variant)
+{
+	if (!(variant & WKT_NO_TYPE)) {
+		stringbuffer_append_len(sb, "NURBSCURVE", 10);
+		dimension_qualifiers_to_wkt_sb((LWGEOM*)curve, sb, variant);
+	}
+
+	if (!curve->points || curve->points->npoints == 0) {
+		empty_to_wkt_sb(sb);
+		return;
+	}
+
+	/* For now, output control points as linestring */
+	stringbuffer_append_len(sb, "(", 1);
+	ptarray_to_wkt_sb(curve->points, sb, precision, variant);
+	stringbuffer_append_len(sb, ")", 1);
+}
 
 /*
 * Generic GEOMETRY
@@ -665,6 +685,9 @@ static void lwgeom_to_wkt_sb(const LWGEOM *geom, stringbuffer_t *sb, int precisi
 		break;
 	case POLYHEDRALSURFACETYPE:
 		lwpsurface_to_wkt_sb((LWPSURFACE*)geom, sb, precision, variant);
+		break;
+	case NURBSCURVETYPE:
+		lwnurbscurve_to_wkt_sb((LWNURBSCURVE*)geom, sb, precision, variant);
 		break;
 	default:
 		lwerror("lwgeom_to_wkt_sb: Type %d - %s unsupported.",
