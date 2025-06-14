@@ -739,6 +739,28 @@ static size_t gserialized2_from_lwcollection_size(const LWCOLLECTION *col)
 	return size;
 }
 
+static size_t gserialized2_from_lwnurbscurve_size(const LWNURBSCURVE *curve)
+{
+	size_t size = 4; /* Type number. */
+
+	assert(curve);
+
+	size += 4; /* degree */
+	size += 4; /* nweights */
+	size += 4; /* nknots */
+	size += 4; /* Number of control points (zero => empty). */
+
+	if (curve->weights && curve->nweights > 0)
+		size += sizeof(double) * curve->nweights;
+	if (curve->knots && curve->nknots > 0)
+		size += sizeof(double) * curve->nknots;
+	if (curve->points)
+		size += sizeof(double) * curve->points->npoints * FLAGS_NDIMS(curve->flags);
+
+	LWDEBUGF(3, "nurbscurve size = %zu", size);
+	return size;
+}
+
 static size_t gserialized2_from_any_size(const LWGEOM *geom)
 {
 	LWDEBUGF(2, "Input type: %s", lwtype_name(geom->type));
@@ -766,6 +788,8 @@ static size_t gserialized2_from_any_size(const LWGEOM *geom)
 	case TINTYPE:
 	case COLLECTIONTYPE:
 		return gserialized2_from_lwcollection_size((LWCOLLECTION *)geom);
+	case NURBSCURVETYPE:
+		return gserialized2_from_lwnurbscurve_size((LWNURBSCURVE *)geom);
 	default:
 		lwerror("Unknown geometry type: %d - %s", geom->type, lwtype_name(geom->type));
 		return 0;
@@ -1039,6 +1063,65 @@ static size_t gserialized2_from_lwcollection(const LWCOLLECTION *coll, uint8_t *
 	return (size_t)(loc - buf);
 }
 
+static size_t gserialized2_from_lwnurbscurve(const LWNURBSCURVE *curve, uint8_t *buf)
+{
+	uint8_t *loc;
+	int ptsize;
+	size_t size;
+	int type = NURBSCURVETYPE;
+
+	assert(curve);
+	assert(buf);
+
+	if (curve->points && FLAGS_GET_ZM(curve->flags) != FLAGS_GET_ZM(curve->points->flags))
+		lwerror("Dimensions mismatch in lwnurbscurve");
+
+	ptsize = curve->points ? ptarray_point_size(curve->points) : 0;
+	loc = buf;
+
+	/* Write in the type. */
+	memcpy(loc, &type, sizeof(uint32_t));
+	loc += sizeof(uint32_t);
+
+	/* Write degree */
+	memcpy(loc, &(curve->degree), sizeof(uint32_t));
+	loc += sizeof(uint32_t);
+
+	/* Write nweights */
+	memcpy(loc, &(curve->nweights), sizeof(uint32_t));
+	loc += sizeof(uint32_t);
+
+	/* Write nknots */
+	memcpy(loc, &(curve->nknots), sizeof(uint32_t));
+	loc += sizeof(uint32_t);
+
+	/* Write npoints */
+	uint32_t npoints = curve->points ? curve->points->npoints : 0;
+	memcpy(loc, &npoints, sizeof(uint32_t));
+	loc += sizeof(uint32_t);
+
+	/* Write weights if any */
+	if (curve->weights && curve->nweights > 0) {
+		memcpy(loc, curve->weights, sizeof(double) * curve->nweights);
+		loc += sizeof(double) * curve->nweights;
+	}
+
+	/* Write knots if any */
+	if (curve->knots && curve->nknots > 0) {
+		memcpy(loc, curve->knots, sizeof(double) * curve->nknots);
+		loc += sizeof(double) * curve->nknots;
+	}
+
+	/* Copy in the ordinates. */
+	if (curve->points && curve->points->npoints > 0) {
+		size = (size_t)curve->points->npoints * ptsize;
+		memcpy(loc, getPoint_internal(curve->points, 0), size);
+		loc += size;
+	}
+
+	return (size_t)(loc - buf);
+}
+
 static size_t gserialized2_from_lwgeom_any(const LWGEOM *geom, uint8_t *buf)
 {
 	assert(geom);
@@ -1072,6 +1155,8 @@ static size_t gserialized2_from_lwgeom_any(const LWGEOM *geom, uint8_t *buf)
 	case TINTYPE:
 	case COLLECTIONTYPE:
 		return gserialized2_from_lwcollection((LWCOLLECTION *)geom, buf);
+	case NURBSCURVETYPE:
+		return gserialized2_from_lwnurbscurve((LWNURBSCURVE *)geom, buf);
 	default:
 		lwerror("Unknown geometry type: %d - %s", geom->type, lwtype_name(geom->type));
 		return 0;
@@ -1454,6 +1539,74 @@ lwcollection_from_gserialized2_buffer(uint8_t *data_ptr, lwflags_t lwflags, size
 	return collection;
 }
 
+static LWNURBSCURVE *
+lwnurbscurve_from_gserialized2_buffer(uint8_t *data_ptr, lwflags_t lwflags, size_t *size)
+{
+	uint8_t *start_ptr = data_ptr;
+	LWNURBSCURVE *curve;
+	uint32_t degree, nweights, nknots, npoints;
+	double *weights = NULL;
+	double *knots = NULL;
+
+	assert(data_ptr);
+
+	curve = (LWNURBSCURVE*)lwalloc(sizeof(LWNURBSCURVE));
+	curve->srid = SRID_UNKNOWN;
+	curve->bbox = NULL;
+	curve->type = NURBSCURVETYPE;
+	curve->flags = lwflags;
+
+	data_ptr += 4; /* Skip past the type. */
+
+	/* Read degree */
+	degree = gserialized2_get_uint32_t(data_ptr);
+	curve->degree = degree;
+	data_ptr += 4;
+
+	/* Read nweights */
+	nweights = gserialized2_get_uint32_t(data_ptr);
+	curve->nweights = nweights;
+	data_ptr += 4;
+
+	/* Read nknots */
+	nknots = gserialized2_get_uint32_t(data_ptr);
+	curve->nknots = nknots;
+	data_ptr += 4;
+
+	/* Read npoints */
+	npoints = gserialized2_get_uint32_t(data_ptr);
+	data_ptr += 4;
+
+	/* Read weights if any */
+	if (nweights > 0) {
+		weights = lwalloc(sizeof(double) * nweights);
+		memcpy(weights, data_ptr, sizeof(double) * nweights);
+		data_ptr += sizeof(double) * nweights;
+	}
+	curve->weights = weights;
+
+	/* Read knots if any */
+	if (nknots > 0) {
+		knots = lwalloc(sizeof(double) * nknots);
+		memcpy(knots, data_ptr, sizeof(double) * nknots);
+		data_ptr += sizeof(double) * nknots;
+	}
+	curve->knots = knots;
+
+	/* Read control points */
+	if (npoints > 0)
+		curve->points = ptarray_construct_reference_data(FLAGS_GET_Z(lwflags), FLAGS_GET_M(lwflags), npoints, data_ptr);
+	else
+		curve->points = ptarray_construct(FLAGS_GET_Z(lwflags), FLAGS_GET_M(lwflags), 0);
+
+	data_ptr += sizeof(double) * FLAGS_NDIMS(lwflags) * npoints;
+
+	if (size)
+		*size = data_ptr - start_ptr;
+
+	return curve;
+}
+
 LWGEOM *
 lwgeom_from_gserialized2_buffer(uint8_t *data_ptr, lwflags_t lwflags, size_t *g_size, int32_t srid)
 {
@@ -1489,6 +1642,8 @@ lwgeom_from_gserialized2_buffer(uint8_t *data_ptr, lwflags_t lwflags, size_t *g_
 	case TINTYPE:
 	case COLLECTIONTYPE:
 		return (LWGEOM *)lwcollection_from_gserialized2_buffer(data_ptr, lwflags, g_size, srid);
+	case NURBSCURVETYPE:
+		return (LWGEOM *)lwnurbscurve_from_gserialized2_buffer(data_ptr, lwflags, g_size);
 	default:
 		lwerror("Unknown geometry type: %d - %s", type, lwtype_name(type));
 		return NULL;

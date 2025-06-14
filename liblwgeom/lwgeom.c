@@ -1265,6 +1265,15 @@ int lwgeom_needs_bbox(const LWGEOM *geom)
 		else
 			return LW_TRUE;
 	}
+	else if ( geom->type == NURBSCURVETYPE )
+	{
+		return LW_FALSE;
+		// LWNURBSCURVE *nurbs = (LWNURBSCURVE*)geom;
+		// if ( !nurbs->points || nurbs->points->npoints <= 2 )
+		// 	return LW_FALSE;
+		// else
+		// 	return LW_TRUE;
+	}
 	else if ( geom->type == MULTIPOINTTYPE )
 	{
 		if ( ((LWCOLLECTION*)geom)->ngeoms == 1 )
