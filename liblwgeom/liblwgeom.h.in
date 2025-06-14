@@ -2679,6 +2679,11 @@ LWGEOM* lwgeom_triangulate_polygon(const LWGEOM* geom);
 */
 int * lwgeom_cluster_kmeans(const LWGEOM **geoms, uint32_t n, uint32_t k, double max_radius);
 
+/* NURBS */
+extern POINTARRAY* lwnurbscurve_get_control_points(const LWNURBSCURVE *curve);
+extern LWLINE* lwnurbscurve_stroke(const LWNURBSCURVE *curve, uint32_t segments);
+extern int lwnurbscurve_validate(const LWNURBSCURVE *curve);
+
 #include "lwinline.h"
 
 #endif /* !defined _LIBLWGEOM_H  */

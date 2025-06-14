@@ -732,6 +732,70 @@ static LWCOLLECTION* lwcollection_from_wkb_state(wkb_parse_state *s)
 	return col;
 }
 
+static LWNURBSCURVE* lwnurbscurve_from_wkb_state(wkb_parse_state *s)
+{
+    uint32_t degree, nweights, nknots, npoints;
+    double *weights = NULL, *knots = NULL;
+    POINTARRAY *points = NULL;
+
+    degree = integer_from_wkb_state(s);
+    if (s->error) return NULL;
+
+    nweights = integer_from_wkb_state(s);
+    if (s->error) return NULL;
+
+    nknots = integer_from_wkb_state(s);
+    if (s->error) return NULL;
+
+    npoints = integer_from_wkb_state(s);
+    if (s->error) return NULL;
+
+    if (nweights > 0) {
+        weights = lwalloc(sizeof(double) * nweights);
+        for (uint32_t i = 0; i < nweights; i++) {
+            weights[i] = double_from_wkb_state(s);
+            if (s->error) {
+                lwfree(weights);
+                return NULL;
+            }
+        }
+    }
+
+    if (nknots > 0) {
+        knots = lwalloc(sizeof(double) * nknots);
+        for (uint32_t i = 0; i < nknots; i++) {
+            knots[i] = double_from_wkb_state(s);
+            if (s->error) {
+                lwfree(weights);
+                lwfree(knots);
+                return NULL;
+            }
+        }
+    }
+
+    if (npoints > 0) {
+        uint32_t ndims = 2;
+        if (s->has_z) ndims++;
+        if (s->has_m) ndims++;
+
+        points = ptarray_construct(s->has_z, s->has_m, npoints);
+        double *dlist = (double*)(points->serialized_pointlist);
+
+        for (uint32_t i = 0; i < npoints * ndims; i++) {
+            dlist[i] = double_from_wkb_state(s);
+            if (s->error) {
+                lwfree(weights);
+                lwfree(knots);
+                ptarray_free(points);
+                return NULL;
+            }
+        }
+    } else {
+        points = ptarray_construct_empty(s->has_z, s->has_m, 1);
+    }
+
+    return lwnurbscurve_construct(s->srid, degree, points, weights, knots, nweights, nknots);
+}
 
 /**
 * GEOMETRY
@@ -818,8 +882,7 @@ LWGEOM* lwgeom_from_wkb_state(wkb_parse_state *s)
 			return (LWGEOM*)lwcollection_from_wkb_state(s);
 			break;
 		case NURBSCURVETYPE:
-			/* NURBS curves are serialized as linestrings for WKB compatibility */
-			return (LWGEOM*)lwline_from_wkb_state(s);
+			return (LWGEOM*)lwnurbscurve_from_wkb_state(s);
 			break;
 		/* Unknown type! */
 		default:

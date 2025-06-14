@@ -30,6 +30,9 @@
 #include "lwgeom_pg.h"
 
 Datum ST_MakeNurbsCurve(PG_FUNCTION_ARGS);
+Datum ST_NurbsCurveControlPoints(PG_FUNCTION_ARGS);
+Datum ST_NurbsCurveDegree(PG_FUNCTION_ARGS);
+Datum ST_NurbsCurveToLineString(PG_FUNCTION_ARGS);
 
 PG_FUNCTION_INFO_V1(ST_MakeNurbsCurve);
 Datum ST_MakeNurbsCurve(PG_FUNCTION_ARGS)
@@ -87,9 +90,6 @@ Datum ST_MakeNurbsCurve(PG_FUNCTION_ARGS)
 	FLAGS_SET_BBOX(nurbs->flags, 0);
 	nurbs->bbox = NULL;
 
-	ereport(NOTICE, (errmsg("NURBS created with type: %d, flags: %d",
-	                       nurbs->type, nurbs->flags)));
-
 	result = geometry_serialize((LWGEOM*)nurbs);
 
 	lwgeom_free(control_geom);
@@ -101,4 +101,91 @@ Datum ST_MakeNurbsCurve(PG_FUNCTION_ARGS)
 	}
 
 	PG_RETURN_POINTER(result);
+}
+
+PG_FUNCTION_INFO_V1(ST_NurbsCurveControlPoints);
+Datum ST_NurbsCurveControlPoints(PG_FUNCTION_ARGS)
+{
+    GSERIALIZED *pgeom = PG_GETARG_GSERIALIZED_P(0);
+    LWGEOM *lwgeom = lwgeom_from_gserialized(pgeom);
+    LWNURBSCURVE *curve;
+    POINTARRAY *ctrl_pts;
+    LWLINE *line;
+    GSERIALIZED *result;
+
+    if (lwgeom->type != NURBSCURVETYPE) {
+        lwgeom_free(lwgeom);
+        ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+            errmsg("Input geometry must be a NURBS curve")));
+    }
+
+    curve = (LWNURBSCURVE*)lwgeom;
+    ctrl_pts = lwnurbscurve_get_control_points(curve);
+
+    if (!ctrl_pts) {
+        lwgeom_free(lwgeom);
+        PG_RETURN_NULL();
+    }
+
+    line = lwline_construct(curve->srid, NULL, ctrl_pts);
+    result = geometry_serialize((LWGEOM*)line);
+
+    lwline_free(line);
+    lwgeom_free(lwgeom);
+
+    PG_RETURN_POINTER(result);
+}
+
+PG_FUNCTION_INFO_V1(ST_NurbsCurveDegree);
+Datum ST_NurbsCurveDegree(PG_FUNCTION_ARGS)
+{
+    GSERIALIZED *pgeom = PG_GETARG_GSERIALIZED_P(0);
+    LWGEOM *lwgeom = lwgeom_from_gserialized(pgeom);
+    LWNURBSCURVE *curve;
+    int32_t degree;
+
+    if (lwgeom->type != NURBSCURVETYPE) {
+        lwgeom_free(lwgeom);
+        ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+            errmsg("Input geometry must be a NURBS curve")));
+    }
+
+    curve = (LWNURBSCURVE*)lwgeom;
+    degree = curve->degree;
+
+    lwgeom_free(lwgeom);
+    PG_RETURN_INT32(degree);
+}
+
+PG_FUNCTION_INFO_V1(ST_NurbsCurveToLineString);
+Datum ST_NurbsCurveToLineString(PG_FUNCTION_ARGS)
+{
+    GSERIALIZED *pgeom = PG_GETARG_GSERIALIZED_P(0);
+    int32_t segments = PG_NARGS() > 1 ? PG_GETARG_INT32(1) : 32;
+    LWGEOM *lwgeom = lwgeom_from_gserialized(pgeom);
+    LWNURBSCURVE *curve;
+    LWLINE *line;
+    GSERIALIZED *result;
+
+    if (lwgeom->type != NURBSCURVETYPE) {
+        lwgeom_free(lwgeom);
+        ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+            errmsg("Input geometry must be a NURBS curve")));
+    }
+
+    if (segments < 2 || segments > 10000) {
+        lwgeom_free(lwgeom);
+        ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+            errmsg("Number of segments must be between 2 and 10000")));
+    }
+
+    curve = (LWNURBSCURVE*)lwgeom;
+    line = lwnurbscurve_stroke(curve, segments);
+
+    result = geometry_serialize((LWGEOM*)line);
+
+    lwline_free(line);
+    lwgeom_free(lwgeom);
+
+    PG_RETURN_POINTER(result);
 }

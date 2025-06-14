@@ -79,3 +79,5 @@ LWGEOM* wkt_parser_collection_new(LWGEOM *geom);
 LWGEOM* wkt_parser_collection_add_geom(LWGEOM *col, LWGEOM *geom);
 LWGEOM* wkt_parser_collection_finalize(int lwtype, LWGEOM *col, char *dimensionality);
 void wkt_parser_geometry_new(LWGEOM *geom, int32_t srid);
+LWNURBSCURVE* wkt_parser_nurbscurve_new(int degree, double *weights, double *knots, POINTARRAY *points);
+LWNURBSCURVE* wkt_parser_nurbscurve_empty(void);
