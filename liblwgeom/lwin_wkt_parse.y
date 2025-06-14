@@ -173,6 +173,10 @@ int lwgeom_parse_wkt(LWGEOM_PARSER_RESULT *parser_result, char *wktstr, int pars
 %type <geometryvalue> triangle_untagged
 %type <geometryvalue> nurbscurve
 %type <geometryvalue> nurbscurve_untagged
+%type <ptarrayvalue> nurbscurve_weights
+%type <ptarrayvalue> nurbscurve_knots
+%type <ptarrayvalue> nurbscurve_weights_list
+%type <ptarrayvalue> nurbscurve_knots_list
 
 /* These clean up memory on errors and parser aborts. */
 %destructor { ptarray_free($$); } ptarray
@@ -544,16 +548,86 @@ coordinate :
 	DOUBLE_TOK DOUBLE_TOK DOUBLE_TOK DOUBLE_TOK
 		{ $$ = wkt_parser_coord_4($1, $2, $3, $4); WKT_ERROR(); } ;
 
+/* Remplacer COMPLÈTEMENT la grammaire NURBS dans lwin_wkt_parse.y par celle-ci : */
+
 nurbscurve :
-    NURBSCURVE_TOK LBRACKET_TOK ptarray RBRACKET_TOK
-        { $$ = (LWGEOM*)wkt_parser_nurbscurve_new(1, NULL, NULL, $3); WKT_ERROR(); }
-    | NURBSCURVE_TOK EMPTY_TOK
-        { $$ = (LWGEOM*)wkt_parser_nurbscurve_empty(); WKT_ERROR(); }
-    ;
+	NURBSCURVE_TOK LBRACKET_TOK nurbscurve_untagged RBRACKET_TOK
+		{ $$ = $3; }
+	| NURBSCURVE_TOK DIMENSIONALITY_TOK LBRACKET_TOK nurbscurve_untagged RBRACKET_TOK
+		{ $$ = $4; }
+	| NURBSCURVE_TOK DIMENSIONALITY_TOK EMPTY_TOK
+		{ $$ = (LWGEOM*)wkt_parser_nurbscurve_empty(); WKT_ERROR(); }
+	| NURBSCURVE_TOK EMPTY_TOK
+		{ $$ = (LWGEOM*)wkt_parser_nurbscurve_empty(); WKT_ERROR(); }
+	;
 
 nurbscurve_untagged :
-    ptarray
-        { $$ = (LWGEOM*)wkt_parser_nurbscurve_new(1, NULL, NULL, $1); WKT_ERROR(); }
-    | EMPTY_TOK
-        { $$ = (LWGEOM*)wkt_parser_nurbscurve_empty(); WKT_ERROR(); }
-    ;
+	DOUBLE_TOK COMMA_TOK nurbscurve_weights COMMA_TOK nurbscurve_knots COMMA_TOK ptarray
+		{
+			double *weights = NULL;
+			double *knots = NULL;
+			uint32_t nweights = 0, nknots = 0;
+
+			/* Extraire weights si présents */
+			if ($3) {
+				nweights = $3->npoints;
+				weights = lwalloc(sizeof(double) * nweights);
+				for (uint32_t i = 0; i < nweights; i++) {
+					POINT2D p;
+					getPoint2d_p($3, i, &p);
+					weights[i] = p.x; /* Utiliser X comme poids */
+				}
+				ptarray_free($3);
+			}
+
+			/* Extraire knots si présents */
+			if ($5) {
+				nknots = $5->npoints;
+				knots = lwalloc(sizeof(double) * nknots);
+				for (uint32_t i = 0; i < nknots; i++) {
+					POINT2D p;
+					getPoint2d_p($5, i, &p);
+					knots[i] = p.x; /* Utiliser X comme nœud */
+				}
+				ptarray_free($5);
+			}
+
+			$$ = (LWGEOM*)wkt_parser_nurbscurve_new((int)$1, weights, knots, $7, nweights, nknots);
+			WKT_ERROR();
+		}
+	| DOUBLE_TOK COMMA_TOK ptarray
+		{
+			/* Format simplifié : NURBSCURVE(degree, points) */
+			$$ = (LWGEOM*)wkt_parser_nurbscurve_new((int)$1, NULL, NULL, $3, 0, 0);
+			WKT_ERROR();
+		}
+	| EMPTY_TOK
+		{ $$ = (LWGEOM*)wkt_parser_nurbscurve_empty(); WKT_ERROR(); }
+	;
+
+nurbscurve_weights :
+	LBRACKET_TOK nurbscurve_weights_list RBRACKET_TOK { $$ = $2; }
+	| EMPTY_TOK { $$ = NULL; }
+	;
+
+nurbscurve_knots :
+	LBRACKET_TOK nurbscurve_knots_list RBRACKET_TOK { $$ = $2; }
+	| EMPTY_TOK { $$ = NULL; }
+	;
+
+nurbscurve_weights_list :
+	nurbscurve_weights_list COMMA_TOK DOUBLE_TOK
+		{
+			$$ = wkt_parser_ptarray_add_coord($1, wkt_parser_coord_2($3, 0));
+			WKT_ERROR();
+		}
+	| DOUBLE_TOK
+		{ $$ = wkt_parser_ptarray_new(wkt_parser_coord_2($1, 0)); WKT_ERROR(); }
+	;
+
+nurbscurve_knots_list :
+	nurbscurve_knots_list COMMA_TOK DOUBLE_TOK
+		{ $$ = wkt_parser_ptarray_add_coord($1, wkt_parser_coord_2($3, 0)); WKT_ERROR(); }
+	| DOUBLE_TOK
+		{ $$ = wkt_parser_ptarray_new(wkt_parser_coord_2($1, 0)); WKT_ERROR(); }
+	;
