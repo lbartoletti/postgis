@@ -891,7 +891,7 @@ LWGEOM* wkt_parser_collection_finalize(int lwtype, LWGEOM *geom, char *dimension
 	return geom;
 }
 
-LWNURBSCURVE* wkt_parser_nurbscurve_new(int degree, double *weights, double *knots, POINTARRAY *points)
+LWNURBSCURVE* wkt_parser_nurbscurve_new(int degree, double *weights, double *knots, POINTARRAY *points, uint32_t nweights, uint32_t nknots)
 {
     if (degree < 1 || degree > 10) {
         lwerror("NURBS degree must be between 1 and 10");
@@ -903,8 +903,20 @@ LWNURBSCURVE* wkt_parser_nurbscurve_new(int degree, double *weights, double *kno
         return NULL;
     }
 
-    uint32_t nweights = weights ? points->npoints : 0;
-    uint32_t nknots = knots ? (points->npoints + degree + 1) : 0;
+    /* Valider la cohérence weights/points */
+    if (weights && nweights > 0 && nweights != points->npoints) {
+        lwerror("Number of weights (%d) must match number of control points (%d)", nweights, points->npoints);
+        return NULL;
+    }
+
+    /* Valider la cohérence knots */
+    if (knots && nknots > 0) {
+        uint32_t expected_knots = points->npoints + degree + 1;
+        if (nknots != expected_knots) {
+            lwerror("Number of knots (%d) must be %d (npoints + degree + 1)", nknots, expected_knots);
+            return NULL;
+        }
+    }
 
     return lwnurbscurve_construct(SRID_UNKNOWN, degree, points, weights, knots, nweights, nknots);
 }
