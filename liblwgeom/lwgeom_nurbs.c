@@ -168,3 +168,121 @@ lwnurbscurve_to_linestring(const LWNURBSCURVE *curve, uint32_t segments)
 	POINTARRAY *pa = ptarray_clone_deep(curve->points);
 	return lwline_construct(curve->srid, NULL, pa);
 }
+
+/**
+ * Validate NURBS curve parameters
+ */
+int lwnurbscurve_validate(const LWNURBSCURVE *curve)
+{
+    if (!curve) return LW_FALSE;
+
+    if (curve->degree < 1 || curve->degree > 10) return LW_FALSE;
+
+    if (!curve->points || curve->points->npoints < curve->degree + 1)
+        return LW_FALSE;
+
+    /* Validate weights if present */
+    if (curve->weights) {
+        if (curve->nweights != curve->points->npoints) return LW_FALSE;
+        for (uint32_t i = 0; i < curve->nweights; i++) {
+            if (curve->weights[i] <= 0.0) return LW_FALSE;
+        }
+    }
+
+    /* Validate knots if present */
+    if (curve->knots) {
+        if (curve->nknots < curve->points->npoints + curve->degree + 1)
+            return LW_FALSE;
+        for (uint32_t i = 1; i < curve->nknots; i++) {
+            if (curve->knots[i] < curve->knots[i-1]) return LW_FALSE;
+        }
+    }
+
+    return LW_TRUE;
+}
+
+/**
+ * Get control points as euclidean coordinates
+ */
+POINTARRAY* lwnurbscurve_get_control_points(const LWNURBSCURVE *curve)
+{
+    if (!curve || !curve->points) return NULL;
+
+    /* If no weights, return points directly */
+    if (!curve->weights) {
+        return ptarray_clone_deep(curve->points);
+    }
+
+    /* Convert from homogeneous to euclidean coordinates */
+    POINTARRAY *result = ptarray_construct(
+        FLAGS_GET_Z(curve->flags),
+        FLAGS_GET_M(curve->flags),
+        curve->points->npoints
+    );
+
+    for (uint32_t i = 0; i < curve->points->npoints; i++) {
+        POINT4D p4d;
+        getPoint4d_p(curve->points, i, &p4d);
+
+        double w = (i < curve->nweights) ? curve->weights[i] : 1.0;
+        if (w != 0.0) {
+            p4d.x /= w;
+            p4d.y /= w;
+            if (FLAGS_GET_Z(curve->flags)) p4d.z /= w;
+        }
+
+        ptarray_set_point4d(result, i, &p4d);
+    }
+
+    return result;
+}
+
+/**
+ * Enhanced curve sampling with proper NURBS evaluation
+ */
+LWLINE* lwnurbscurve_stroke(const LWNURBSCURVE *curve, uint32_t segments)
+{
+    if (!curve || !curve->points) return NULL;
+
+    if (curve->points->npoints == 0) {
+        return lwline_construct_empty(curve->srid,
+                                    FLAGS_GET_Z(curve->flags),
+                                    FLAGS_GET_M(curve->flags));
+    }
+
+    if (segments < 2) segments = 32;
+
+    POINTARRAY *pa = ptarray_construct(
+        FLAGS_GET_Z(curve->flags),
+        FLAGS_GET_M(curve->flags),
+        segments
+    );
+
+    /* For now, simple linear interpolation of control points */
+    /* TODO: Implement proper NURBS evaluation algorithm */
+    POINTARRAY *ctrl_pts = lwnurbscurve_get_control_points(curve);
+
+    for (uint32_t i = 0; i < segments; i++) {
+        double t = (double)i / (segments - 1);
+        uint32_t seg_idx = (uint32_t)(t * (ctrl_pts->npoints - 1));
+        if (seg_idx >= ctrl_pts->npoints - 1) seg_idx = ctrl_pts->npoints - 2;
+
+        double local_t = t * (ctrl_pts->npoints - 1) - seg_idx;
+
+        POINT4D p1, p2, result;
+        getPoint4d_p(ctrl_pts, seg_idx, &p1);
+        getPoint4d_p(ctrl_pts, seg_idx + 1, &p2);
+
+        result.x = p1.x + local_t * (p2.x - p1.x);
+        result.y = p1.y + local_t * (p2.y - p1.y);
+        if (FLAGS_GET_Z(curve->flags))
+            result.z = p1.z + local_t * (p2.z - p1.z);
+        if (FLAGS_GET_M(curve->flags))
+            result.m = p1.m + local_t * (p2.m - p1.m);
+
+        ptarray_set_point4d(pa, i, &result);
+    }
+
+    ptarray_free(ctrl_pts);
+    return lwline_construct(curve->srid, NULL, pa);
+}

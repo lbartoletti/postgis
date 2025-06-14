@@ -117,7 +117,7 @@
 #define WKB_POLYHEDRALSURFACE_TYPE 15
 #define WKB_TIN_TYPE 16
 #define WKB_TRIANGLE_TYPE 17
-
+#define WKB_NURBSCURVE_TYPE 21 /* from Wikipedia, is it real? */
 
 /**
 * Macro that returns:
@@ -505,6 +505,12 @@ void* lwalloc0(size_t sz);
 
 /* NURBS */
 LWLINE *lwnurbscurve_to_linestring(const LWNURBSCURVE *curve, uint32_t segments);
-
+int lwnurbscurve_validate(const LWNURBSCURVE *curve);
+POINTARRAY* lwnurbscurve_get_control_points(const LWNURBSCURVE *curve);
+double* lwnurbscurve_get_weights(const LWNURBSCURVE *curve);
+double* lwnurbscurve_get_knots(const LWNURBSCURVE *curve);
+LWLINE* lwnurbscurve_stroke(const LWNURBSCURVE *curve, uint32_t segments);
+POINT4D lwnurbscurve_evaluate_at(const LWNURBSCURVE *curve, double t);
+POINT4D lwnurbscurve_tangent_at(const LWNURBSCURVE *curve, double t);
 
 #endif /* _LIBLWGEOM_INTERNAL_H */

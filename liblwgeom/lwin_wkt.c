@@ -891,6 +891,29 @@ LWGEOM* wkt_parser_collection_finalize(int lwtype, LWGEOM *geom, char *dimension
 	return geom;
 }
 
+LWNURBSCURVE* wkt_parser_nurbscurve_new(int degree, double *weights, double *knots, POINTARRAY *points)
+{
+    if (degree < 1 || degree > 10) {
+        lwerror("NURBS degree must be between 1 and 10");
+        return NULL;
+    }
+
+    if (!points || points->npoints < degree + 1) {
+        lwerror("NURBS requires at least %d control points for degree %d", degree + 1, degree);
+        return NULL;
+    }
+
+    uint32_t nweights = weights ? points->npoints : 0;
+    uint32_t nknots = knots ? (points->npoints + degree + 1) : 0;
+
+    return lwnurbscurve_construct(SRID_UNKNOWN, degree, points, weights, knots, nweights, nknots);
+}
+
+LWNURBSCURVE* wkt_parser_nurbscurve_empty(void)
+{
+    return lwnurbscurve_construct_empty(SRID_UNKNOWN, 0, 0);
+}
+
 void
 wkt_parser_geometry_new(LWGEOM *geom, int32_t srid)
 {

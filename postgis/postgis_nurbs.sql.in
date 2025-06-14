@@ -6,18 +6,27 @@
 -- NURBS curve creation
 CREATE OR REPLACE FUNCTION ST_MakeNurbsCurve(integer, geometry)
     RETURNS geometry AS 'MODULE_PATHNAME', 'ST_MakeNurbsCurve'
-    LANGUAGE 'c' IMMUTABLE STRICT;
+    LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE;
+
+-- NURBS curve properties
+CREATE OR REPLACE FUNCTION ST_NurbsCurveDegree(geometry)
+    RETURNS integer AS 'MODULE_PATHNAME', 'ST_NurbsCurveDegree'
+    LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE;
+
+CREATE OR REPLACE FUNCTION ST_NurbsCurveControlPoints(geometry)
+    RETURNS geometry AS 'MODULE_PATHNAME', 'ST_NurbsCurveControlPoints'
+    LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE;
 
 -- NURBS to linestring conversion
--- CREATE OR REPLACE FUNCTION ST_NurbsToLine(geometry, integer)
---     RETURNS geometry AS 'MODULE_PATHNAME', 'ST_NurbsToLine'
---     LANGUAGE 'c' IMMUTABLE STRICT;
---
--- CREATE OR REPLACE FUNCTION ST_NurbsToLine(geometry)
---     RETURNS geometry AS $$ SELECT ST_NurbsToLine($1, 32) $$
---     LANGUAGE 'sql' IMMUTABLE STRICT;
---
--- CREATE OR REPLACE FUNCTION ST_MakeBezier(geometry)
---     RETURNS geometry AS 'MODULE_PATHNAME', 'ST_MakeBezier'
---     LANGUAGE 'c' IMMUTABLE STRICT;
---
+CREATE OR REPLACE FUNCTION ST_NurbsCurveToLineString(geometry, integer)
+    RETURNS geometry AS 'MODULE_PATHNAME', 'ST_NurbsCurveToLineString'
+    LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE;
+
+CREATE OR REPLACE FUNCTION ST_NurbsCurveToLineString(geometry)
+    RETURNS geometry AS $$ SELECT ST_NurbsCurveToLineString($1, 32) $$
+    LANGUAGE 'sql' IMMUTABLE STRICT PARALLEL SAFE;
+
+-- Linestring to NURBS conversion
+CREATE OR REPLACE FUNCTION ST_LineToNurbsCurve(geometry, integer DEFAULT 1)
+    RETURNS geometry AS $$ SELECT ST_MakeNurbsCurve($2, $1) $$
+    LANGUAGE 'sql' IMMUTABLE STRICT PARALLEL SAFE;
