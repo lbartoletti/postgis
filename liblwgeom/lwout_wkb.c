@@ -90,8 +90,8 @@ static uint32_t lwgeom_wkb_type(const LWGEOM *geom, uint8_t variant)
 		wkb_type = WKB_POINT_TYPE;
 		break;
 	case LINETYPE:
-	case NURBSCURVETYPE: // TODO add WKB_NURBSCURVE_TYPE
-		wkb_type = WKB_LINESTRING_TYPE;
+	case NURBSCURVETYPE:
+		wkb_type = WKB_NURBSCURVE_TYPE;
 		break;
 	case POLYGONTYPE:
 		wkb_type = WKB_POLYGON_TYPE;
@@ -670,6 +670,73 @@ static uint8_t* lwcollection_to_wkb_buf(const LWCOLLECTION *col, uint8_t *buf, u
 	return buf;
 }
 
+static size_t lwnurbscurve_to_wkb_size(const LWNURBSCURVE *curve, uint8_t variant)
+{
+    size_t size = WKB_BYTE_SIZE + WKB_INT_SIZE; /* endian + type */
+
+    /* Extended WKB needs space for optional SRID integer */
+    if ( lwgeom_wkb_needs_srid((LWGEOM*)curve, variant) )
+        size += WKB_INT_SIZE;
+
+    size += WKB_INT_SIZE; /* degree */
+    size += WKB_INT_SIZE; /* nweights */
+    size += WKB_INT_SIZE; /* nknots */
+    size += WKB_INT_SIZE; /* npoints */
+
+    if (curve->weights && curve->nweights > 0)
+        size += WKB_DOUBLE_SIZE * curve->nweights;
+    if (curve->knots && curve->nknots > 0)
+        size += WKB_DOUBLE_SIZE * curve->nknots;
+    if (curve->points)
+        size += ptarray_to_wkb_size(curve->points, variant | WKB_NO_NPOINTS);
+
+    return size;
+}
+
+static uint8_t* lwnurbscurve_to_wkb_buf(const LWNURBSCURVE *curve, uint8_t *buf, uint8_t variant)
+{
+    uint32_t wkb_type = lwgeom_wkb_type((LWGEOM*)curve, variant);
+
+    /* Write endian flag */
+    buf = endian_to_wkb_buf(buf, variant);
+
+    /* Write type */
+    buf = integer_to_wkb_buf(wkb_type, buf, variant);
+
+    /* Set the optional SRID for extended variant */
+    if ( lwgeom_wkb_needs_srid((LWGEOM*)curve, variant) )
+        buf = integer_to_wkb_buf(curve->srid, buf, variant);
+
+    /* Write degree */
+    buf = integer_to_wkb_buf(curve->degree, buf, variant);
+
+    /* Write counts */
+    buf = integer_to_wkb_buf(curve->nweights, buf, variant);
+    buf = integer_to_wkb_buf(curve->nknots, buf, variant);
+    buf = integer_to_wkb_buf(curve->points ? curve->points->npoints : 0, buf, variant);
+
+    /* Write weights */
+    if (curve->weights && curve->nweights > 0) {
+        for (uint32_t i = 0; i < curve->nweights; i++) {
+            buf = double_to_wkb_buf(curve->weights[i], buf, variant);
+        }
+    }
+
+    /* Write knots */
+    if (curve->knots && curve->nknots > 0) {
+        for (uint32_t i = 0; i < curve->nknots; i++) {
+            buf = double_to_wkb_buf(curve->knots[i], buf, variant);
+        }
+    }
+
+    /* Write control points */
+    if (curve->points && curve->points->npoints > 0) {
+        buf = ptarray_to_wkb_buf(curve->points, buf, variant | WKB_NO_NPOINTS);
+    }
+
+    return buf;
+}
+
 /*
 * GEOMETRY
 */
@@ -727,13 +794,8 @@ lwgeom_to_wkb_size(const LWGEOM *geom, uint8_t variant)
 			size += lwcollection_to_wkb_size((LWCOLLECTION*)geom, variant);
 			break;
 		case NURBSCURVETYPE:
-			{
-				LWNURBSCURVE *nurbs = (LWNURBSCURVE*)geom;
-				LWLINE *line = lwnurbscurve_to_linestring(nurbs, 32);
-				size += lwline_to_wkb_size(line, variant);
-				lwline_free(line);
-				break;
-			}
+			size += lwnurbscurve_to_wkb_size((LWNURBSCURVE*)geom, variant);
+			break;
 		/* Unknown type! */
 		default:
 			lwerror("%s: Unsupported geometry type: %s", __func__, lwtype_name(geom->type));
@@ -782,13 +844,7 @@ static uint8_t* lwgeom_to_wkb_buf(const LWGEOM *geom, uint8_t *buf, uint8_t vari
 		case TINTYPE:
 			return lwcollection_to_wkb_buf((LWCOLLECTION*)geom, buf, variant);
 		case NURBSCURVETYPE:
-			{
-				LWNURBSCURVE *nurbs = (LWNURBSCURVE*)geom;
-				LWLINE *line = lwnurbscurve_to_linestring(nurbs, 32);
-				buf = lwline_to_wkb_buf(line, buf, variant);
-				lwline_free(line);
-				return buf;
-			}
+			return lwnurbscurve_to_wkb_buf((LWNURBSCURVE*)geom, buf, variant);
 
 		/* Unknown type! */
 		default:
