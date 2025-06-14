@@ -670,21 +670,19 @@ LWTIN;
 /**
 * NURBS curve type
 */
-typedef struct
-{
-	GBOX *bbox;
-	POINTARRAY *points;  /* Control points */
-	double *weights;     /* Weights (NULL for non-rational) */
-	double *knots;       /* Knot vector (NULL for Bezier) */
-	int32_t srid;
-	lwflags_t flags;
-	uint8_t type;        /* NURBSCURVETYPE */
-	char pad[1];
-	uint32_t degree;     /* Curve degree */
-	uint32_t nweights;   /* Number of weights */
-	uint32_t nknots;     /* Number of knots */
-}
-LWNURBSCURVE;
+typedef struct {
+    GBOX *bbox;
+    POINTARRAY *points;   /* Control points */
+    int32_t    srid;
+    lwflags_t  flags;
+    uint8_t    type;      /* NURBSCURVETYPE */
+    char       pad[1];
+    uint32_t   degree;    /* Curve degree */
+    uint32_t   nweights;  /* Number of weights */
+    uint32_t   nknots;    /* Number of knots */
+    double    *weights;   /* (NULL if non-rational) */
+    double    *knots;     /* (NULL if Bezier) */
+} LWNURBSCURVE;
 
 /* Casts LWGEOM->LW* (return NULL if cast is illegal) */
 extern LWMPOLY *lwgeom_as_lwmpoly(const LWGEOM *lwgeom);
