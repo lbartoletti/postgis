@@ -45,7 +45,8 @@ lwnurbscurve_construct(int32_t srid, uint32_t degree, POINTARRAY *points,
 
 	result = lwalloc(sizeof(LWNURBSCURVE));
 	result->type = NURBSCURVETYPE;
-	result->flags = points ? points->flags : lwflags(0, 0, 0);
+	result->flags = points->flags;
+	FLAGS_SET_BBOX(result->flags, 0);
 	result->srid = srid;
 	result->bbox = NULL;
 	result->degree = degree;

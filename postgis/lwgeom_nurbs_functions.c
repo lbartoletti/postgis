@@ -66,36 +66,33 @@ Datum ST_MakeNurbsCurve(PG_FUNCTION_ARGS)
 			errmsg("Need at least %d control points for degree %d NURBS", degree + 1, degree)));
 	}
 
+	/* Clone les points ET preserve les flags correctement */
 	ctrl_pts = ptarray_clone_deep(line->points);
 
+	/* CORRECTION CRITIQUE: S'assurer que les flags sont cohérents */
 	nurbs = lwnurbscurve_construct(control_geom->srid, degree, ctrl_pts, NULL, NULL, 0, 0);
-	lwgeom_free(control_geom);
 
 	if (!nurbs) {
+		lwgeom_free(control_geom);
 		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR),
 			errmsg("Failed to construct NURBS curve")));
 	}
 
-	// DEBUG: Vérifier le type
-	ereport(NOTICE, (errmsg("NURBS created with type: %d", nurbs->type)));
+	/* CORRECTION: Synchroniser les flags entre la géométrie et les points */
+	if (nurbs->points) {
+		nurbs->flags = nurbs->points->flags;
+	}
 
-	/* S'assurer que la bbox n'est PAS calculée automatiquement */
-	// Commenter cette ligne pour éviter le calcul de bbox
-	// if (lwgeom_needs_bbox((LWGEOM*)nurbs))
-	//     lwgeom_add_bbox((LWGEOM*)nurbs);
+	/* CORRECTION: Ne PAS calculer de bbox automatiquement pour éviter les problèmes */
+	FLAGS_SET_BBOX(nurbs->flags, 0);
+	nurbs->bbox = NULL;
 
-	ereport(NOTICE, (errmsg("Before serialize: NURBS type=%d, srid=%d",
-                       nurbs->type, nurbs->srid)));
+	ereport(NOTICE, (errmsg("NURBS created with type: %d, flags: %d",
+	                       nurbs->type, nurbs->flags)));
+
 	result = geometry_serialize((LWGEOM*)nurbs);
 
-	// DEBUG: Vérifier le type après sérialisation
-	if (result) {
-    LWGEOM *test_geom = lwgeom_from_gserialized(result);
-    ereport(NOTICE, (errmsg("After serialize: type=%d",
-                           test_geom ? test_geom->type : -1)));
-    if (test_geom) lwgeom_free(test_geom);
-}
-
+	lwgeom_free(control_geom);
 	lwnurbscurve_free(nurbs);
 
 	if (!result) {
