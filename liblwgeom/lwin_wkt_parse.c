@@ -688,9 +688,9 @@ static const yytype_int16 yyrline[] =
      448,   452,   454,   458,   460,   462,   464,   468,   470,   472,
      474,   478,   480,   484,   486,   490,   492,   494,   496,   500,
      504,   506,   508,   510,   514,   516,   520,   522,   524,   528,
-     530,   532,   534,   538,   540,   544,   546,   548,   554,   556,
-     558,   560,   565,   598,   604,   609,   610,   614,   615,   619,
-     624,   629,   631
+     530,   532,   534,   538,   540,   544,   546,   548,   553,   555,
+     557,   559,   564,   597,   603,   608,   609,   613,   614,   618,
+     623,   627,   629
 };
 #endif
 
@@ -2890,31 +2890,31 @@ yyreduce:
     break;
 
   case 138: /* nurbscurve: NURBSCURVE_TOK LBRACKET_TOK nurbscurve_untagged RBRACKET_TOK  */
-#line 555 "lwin_wkt_parse.y"
+#line 554 "lwin_wkt_parse.y"
                 { (yyval.geometryvalue) = (yyvsp[-1].geometryvalue); }
 #line 2896 "lwin_wkt_parse.c"
     break;
 
   case 139: /* nurbscurve: NURBSCURVE_TOK DIMENSIONALITY_TOK LBRACKET_TOK nurbscurve_untagged RBRACKET_TOK  */
-#line 557 "lwin_wkt_parse.y"
+#line 556 "lwin_wkt_parse.y"
                 { (yyval.geometryvalue) = (yyvsp[-1].geometryvalue); }
 #line 2902 "lwin_wkt_parse.c"
     break;
 
   case 140: /* nurbscurve: NURBSCURVE_TOK DIMENSIONALITY_TOK EMPTY_TOK  */
-#line 559 "lwin_wkt_parse.y"
-                { (yyval.geometryvalue) = (LWGEOM*)wkt_parser_nurbscurve_empty(); WKT_ERROR(); }
+#line 558 "lwin_wkt_parse.y"
+                { (yyval.geometryvalue) = (LWGEOM*)wkt_parser_nurbscurve_empty((yyvsp[-1].stringvalue)); WKT_ERROR(); }
 #line 2908 "lwin_wkt_parse.c"
     break;
 
   case 141: /* nurbscurve: NURBSCURVE_TOK EMPTY_TOK  */
-#line 561 "lwin_wkt_parse.y"
-                { (yyval.geometryvalue) = (LWGEOM*)wkt_parser_nurbscurve_empty(); WKT_ERROR(); }
+#line 560 "lwin_wkt_parse.y"
+                { (yyval.geometryvalue) = (LWGEOM*)wkt_parser_nurbscurve_empty(NULL); WKT_ERROR(); }
 #line 2914 "lwin_wkt_parse.c"
     break;
 
   case 142: /* nurbscurve_untagged: DOUBLE_TOK COMMA_TOK nurbscurve_weights COMMA_TOK nurbscurve_knots COMMA_TOK ptarray  */
-#line 566 "lwin_wkt_parse.y"
+#line 565 "lwin_wkt_parse.y"
                 {
 			double *weights = NULL;
 			double *knots = NULL;
@@ -2944,54 +2944,54 @@ yyreduce:
 				ptarray_free((yyvsp[-2].ptarrayvalue));
 			}
 
-			(yyval.geometryvalue) = (LWGEOM*)wkt_parser_nurbscurve_new((int)(yyvsp[-6].doublevalue), weights, knots, (yyvsp[0].ptarrayvalue), nweights, nknots);
+			(yyval.geometryvalue) = wkt_parser_nurbscurve_new((int)(yyvsp[-6].doublevalue), weights, knots, (yyvsp[0].ptarrayvalue), nweights, nknots);
 			WKT_ERROR();
 		}
 #line 2951 "lwin_wkt_parse.c"
     break;
 
   case 143: /* nurbscurve_untagged: DOUBLE_TOK COMMA_TOK ptarray  */
-#line 599 "lwin_wkt_parse.y"
+#line 598 "lwin_wkt_parse.y"
                 {
 			/* Format simplifié : NURBSCURVE(degree, points) */
-			(yyval.geometryvalue) = (LWGEOM*)wkt_parser_nurbscurve_new((int)(yyvsp[-2].doublevalue), NULL, NULL, (yyvsp[0].ptarrayvalue), 0, 0);
+			(yyval.geometryvalue) = wkt_parser_nurbscurve_new((int)(yyvsp[-2].doublevalue), NULL, NULL, (yyvsp[0].ptarrayvalue), 0, 0);
 			WKT_ERROR();
 		}
 #line 2961 "lwin_wkt_parse.c"
     break;
 
   case 144: /* nurbscurve_untagged: EMPTY_TOK  */
-#line 605 "lwin_wkt_parse.y"
-                { (yyval.geometryvalue) = (LWGEOM*)wkt_parser_nurbscurve_empty(); WKT_ERROR(); }
+#line 604 "lwin_wkt_parse.y"
+                { (yyval.geometryvalue) = (LWGEOM*)wkt_parser_nurbscurve_empty(NULL); WKT_ERROR(); }
 #line 2967 "lwin_wkt_parse.c"
     break;
 
   case 145: /* nurbscurve_weights: LBRACKET_TOK nurbscurve_weights_list RBRACKET_TOK  */
-#line 609 "lwin_wkt_parse.y"
+#line 608 "lwin_wkt_parse.y"
                                                           { (yyval.ptarrayvalue) = (yyvsp[-1].ptarrayvalue); }
 #line 2973 "lwin_wkt_parse.c"
     break;
 
   case 146: /* nurbscurve_weights: EMPTY_TOK  */
-#line 610 "lwin_wkt_parse.y"
+#line 609 "lwin_wkt_parse.y"
                     { (yyval.ptarrayvalue) = NULL; }
 #line 2979 "lwin_wkt_parse.c"
     break;
 
   case 147: /* nurbscurve_knots: LBRACKET_TOK nurbscurve_knots_list RBRACKET_TOK  */
-#line 614 "lwin_wkt_parse.y"
+#line 613 "lwin_wkt_parse.y"
                                                         { (yyval.ptarrayvalue) = (yyvsp[-1].ptarrayvalue); }
 #line 2985 "lwin_wkt_parse.c"
     break;
 
   case 148: /* nurbscurve_knots: EMPTY_TOK  */
-#line 615 "lwin_wkt_parse.y"
+#line 614 "lwin_wkt_parse.y"
                     { (yyval.ptarrayvalue) = NULL; }
 #line 2991 "lwin_wkt_parse.c"
     break;
 
   case 149: /* nurbscurve_weights_list: nurbscurve_weights_list COMMA_TOK DOUBLE_TOK  */
-#line 620 "lwin_wkt_parse.y"
+#line 619 "lwin_wkt_parse.y"
                 {
 			(yyval.ptarrayvalue) = wkt_parser_ptarray_add_coord((yyvsp[-2].ptarrayvalue), wkt_parser_coord_2((yyvsp[0].doublevalue), 0));
 			WKT_ERROR();
@@ -3000,19 +3000,19 @@ yyreduce:
     break;
 
   case 150: /* nurbscurve_weights_list: DOUBLE_TOK  */
-#line 625 "lwin_wkt_parse.y"
-                { (yyval.ptarrayvalue) = wkt_parser_ptarray_new(wkt_parser_coord_2((yyvsp[0].doublevalue), 0)); WKT_ERROR(); }
+#line 623 "lwin_wkt_parse.y"
+                     { (yyval.ptarrayvalue) = wkt_parser_ptarray_new(wkt_parser_coord_2((yyvsp[0].doublevalue), 0)); WKT_ERROR(); }
 #line 3006 "lwin_wkt_parse.c"
     break;
 
   case 151: /* nurbscurve_knots_list: nurbscurve_knots_list COMMA_TOK DOUBLE_TOK  */
-#line 630 "lwin_wkt_parse.y"
+#line 628 "lwin_wkt_parse.y"
                 { (yyval.ptarrayvalue) = wkt_parser_ptarray_add_coord((yyvsp[-2].ptarrayvalue), wkt_parser_coord_2((yyvsp[0].doublevalue), 0)); WKT_ERROR(); }
 #line 3012 "lwin_wkt_parse.c"
     break;
 
   case 152: /* nurbscurve_knots_list: DOUBLE_TOK  */
-#line 632 "lwin_wkt_parse.y"
+#line 630 "lwin_wkt_parse.y"
                 { (yyval.ptarrayvalue) = wkt_parser_ptarray_new(wkt_parser_coord_2((yyvsp[0].doublevalue), 0)); WKT_ERROR(); }
 #line 3018 "lwin_wkt_parse.c"
     break;
