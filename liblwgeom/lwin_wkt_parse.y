@@ -101,6 +101,13 @@ int lwgeom_parse_wkt(LWGEOM_PARSER_RESULT *parser_result, char *wktstr, int pars
 	return LW_SUCCESS;
 }
 
+#define SET_PARSER_ERROR(errcode) \
+    do { \
+        global_parser_result.errcode = (errcode); \
+        global_parser_result.message = parser_error_messages[(errcode)]; \
+        global_parser_result.errlocation = wkt_yylloc.last_column; \
+    } while(0)
+
 #define WKT_ERROR() { if ( global_parser_result.errcode != 0 ) { YYERROR; } }
 
 
@@ -602,7 +609,6 @@ nurbscurve_untagged :
 		}
 	| EMPTY_TOK
 		{ $$ = (LWGEOM*)wkt_parser_nurbscurve_empty(NULL); WKT_ERROR(); }
-	;
 
 nurbscurve_weights :
 	LBRACKET_TOK nurbscurve_weights_list RBRACKET_TOK { $$ = $2; }
