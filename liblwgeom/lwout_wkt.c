@@ -610,7 +610,7 @@ static void lwpsurface_to_wkt_sb(const LWPSURFACE *psurf, stringbuffer_t *sb, in
 }
 
 /*
- * NURBSCURVE - Format: NURBSCURVE((x1 y1 w1, x2 y2 w2, ...), (k1, k2, ...), degree)
+ * NURBSCURVE - Format simplifié : NURBSCURVE((x1 y1 [z1] [m1] w1, x2 y2 [z2] [m2] w2, ...), degree)
  */
 static void lwnurbscurve_to_wkt_sb(const LWNURBSCURVE *curve, stringbuffer_t *sb, int precision, uint8_t variant)
 {
@@ -624,11 +624,9 @@ static void lwnurbscurve_to_wkt_sb(const LWNURBSCURVE *curve, stringbuffer_t *sb
 		return;
 	}
 
-	stringbuffer_append_len(sb, "(", 1);
+	stringbuffer_append_len(sb, "((", 2);
 
-	/* Première parenthèse : points de contrôle pondérés */
-	stringbuffer_append_len(sb, "(", 1);
-
+	/* Points de contrôle avec poids intégrés */
 	for (uint32_t i = 0; i < curve->points->npoints; i++) {
 		POINT4D p4d;
 		getPoint4d_p(curve->points, i, &p4d);
@@ -658,22 +656,18 @@ static void lwnurbscurve_to_wkt_sb(const LWNURBSCURVE *curve, stringbuffer_t *sb
 
 	stringbuffer_append_len(sb, "),", 2);
 
-	/* Deuxième parenthèse : vecteur de nœuds */
-	stringbuffer_append_len(sb, "(", 1);
-
+	/* Si des nœuds sont présents, les ajouter */
 	if (curve->knots && curve->nknots > 0) {
+		stringbuffer_append_len(sb, "(", 1);
 		for (uint32_t i = 0; i < curve->nknots; i++) {
 			if (i > 0) stringbuffer_append_len(sb, ",", 1);
 			stringbuffer_aprintf(sb, "%.*g", precision, curve->knots[i]);
 		}
+		stringbuffer_append_len(sb, "),", 2);
 	}
 
-	stringbuffer_append_len(sb, "),", 2);
-
 	/* Degré */
-	stringbuffer_aprintf(sb, "%d", curve->degree);
-
-	stringbuffer_append_len(sb, ")", 1);
+	stringbuffer_aprintf(sb, "%d)", curve->degree);
 }
 
 /*
