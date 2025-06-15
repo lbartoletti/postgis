@@ -610,53 +610,70 @@ static void lwpsurface_to_wkt_sb(const LWPSURFACE *psurf, stringbuffer_t *sb, in
 }
 
 /*
- * NURBSCURVE
+ * NURBSCURVE - Format: NURBSCURVE((x1 y1 w1, x2 y2 w2, ...), (k1, k2, ...), degree)
  */
 static void lwnurbscurve_to_wkt_sb(const LWNURBSCURVE *curve, stringbuffer_t *sb, int precision, uint8_t variant)
 {
-    if (!(variant & WKT_NO_TYPE)) {
-        stringbuffer_append_len(sb, "NURBSCURVE", 10);
-        dimension_qualifiers_to_wkt_sb((LWGEOM*)curve, sb, variant);
-    }
+	if (!(variant & WKT_NO_TYPE)) {
+		stringbuffer_append_len(sb, "NURBSCURVE", 10);
+		dimension_qualifiers_to_wkt_sb((LWGEOM*)curve, sb, variant);
+	}
 
-    if (!curve->points || curve->points->npoints == 0) {
-        empty_to_wkt_sb(sb);
-        return;
-    }
+	if (!curve->points || curve->points->npoints == 0) {
+		empty_to_wkt_sb(sb);
+		return;
+	}
 
-    stringbuffer_append_len(sb, "(", 1);
+	stringbuffer_append_len(sb, "(", 1);
 
-    /* Write degree */
-    stringbuffer_aprintf(sb, "%d,", curve->degree);
+	/* Première parenthèse : points de contrôle pondérés */
+	stringbuffer_append_len(sb, "(", 1);
 
-    /* Write weights */
-    if (curve->weights && curve->nweights > 0) {
-        stringbuffer_append_len(sb, "(", 1);
-        for (uint32_t i = 0; i < curve->nweights; i++) {
-            if (i > 0) stringbuffer_append_len(sb, ",", 1);
-            stringbuffer_aprintf(sb, "%.*g", precision, curve->weights[i]);
-        }
-        stringbuffer_append_len(sb, "),", 2);
-    } else {
-        stringbuffer_append_len(sb, "EMPTY,", 6);
-    }
+	for (uint32_t i = 0; i < curve->points->npoints; i++) {
+		POINT4D p4d;
+		getPoint4d_p(curve->points, i, &p4d);
 
-    /* Write knots */
-    if (curve->knots && curve->nknots > 0) {
-        stringbuffer_append_len(sb, "(", 1);
-        for (uint32_t i = 0; i < curve->nknots; i++) {
-            if (i > 0) stringbuffer_append_len(sb, ",", 1);
-            stringbuffer_aprintf(sb, "%.*g", precision, curve->knots[i]);
-        }
-        stringbuffer_append_len(sb, "),", 2);
-    } else {
-        stringbuffer_append_len(sb, "EMPTY,", 6);
-    }
+		if (i > 0) stringbuffer_append_len(sb, ",", 1);
 
-    /* Write control points */
-    ptarray_to_wkt_sb(curve->points, sb, precision, variant);
+		/* Coordonnées du point de contrôle */
+		stringbuffer_aprintf(sb, "%.*g %.*g", precision, p4d.x, precision, p4d.y);
 
-    stringbuffer_append_len(sb, ")", 1);
+		/* Ajouter Z si présent */
+		if (FLAGS_GET_Z(curve->flags)) {
+			stringbuffer_aprintf(sb, " %.*g", precision, p4d.z);
+		}
+
+		/* Ajouter M si présent */
+		if (FLAGS_GET_M(curve->flags)) {
+			stringbuffer_aprintf(sb, " %.*g", precision, p4d.m);
+		}
+
+		/* Ajouter le poids */
+		double weight = 1.0;
+		if (curve->weights && i < curve->nweights) {
+			weight = curve->weights[i];
+		}
+		stringbuffer_aprintf(sb, " %.*g", precision, weight);
+	}
+
+	stringbuffer_append_len(sb, "),", 2);
+
+	/* Deuxième parenthèse : vecteur de nœuds */
+	stringbuffer_append_len(sb, "(", 1);
+
+	if (curve->knots && curve->nknots > 0) {
+		for (uint32_t i = 0; i < curve->nknots; i++) {
+			if (i > 0) stringbuffer_append_len(sb, ",", 1);
+			stringbuffer_aprintf(sb, "%.*g", precision, curve->knots[i]);
+		}
+	}
+
+	stringbuffer_append_len(sb, "),", 2);
+
+	/* Degré */
+	stringbuffer_aprintf(sb, "%d", curve->degree);
+
+	stringbuffer_append_len(sb, ")", 1);
 }
 
 /*
