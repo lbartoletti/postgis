@@ -1035,6 +1035,45 @@ LWGEOM* wkt_parser_nurbscurve_new(POINTARRAY *points, POINTARRAY *knot_array, in
 	return lwnurbscurve_as_lwgeom(curve);
 }
 
+LWGEOM* wkt_parser_nurbscurve_new_separated(POINTARRAY *points, POINTARRAY *weights, POINTARRAY *knots, int degree, char *dimensionality)
+{
+    LWNURBSCURVE *curve;
+    double *weight_array = NULL;
+    double *knot_array = NULL;
+    uint32_t nweights = 0, nknots = 0;
+
+    // Extraire les poids si fournis
+    if (weights && weights->npoints > 0) {
+        nweights = weights->npoints;
+        weight_array = lwalloc(sizeof(double) * nweights);
+        for (uint32_t i = 0; i < nweights; i++) {
+            POINT2D p;
+            getPoint2d_p(weights, i, &p);
+            weight_array[i] = p.x; // Le poids est stocké dans X
+        }
+    }
+
+    // Extraire les nœuds si fournis
+    if (knots && knots->npoints > 0) {
+        nknots = knots->npoints;
+        knot_array = lwalloc(sizeof(double) * nknots);
+        for (uint32_t i = 0; i < nknots; i++) {
+            POINT2D p;
+            getPoint2d_p(knots, i, &p);
+            knot_array[i] = p.x; // Le nœud est stocké dans X
+        }
+    }
+
+    curve = lwnurbscurve_construct(SRID_UNKNOWN, degree, points, weight_array, knot_array, nweights, nknots);
+
+    if (!curve) {
+        SET_PARSER_ERROR(PARSER_ERROR_OTHER);
+        return NULL;
+    }
+
+    return lwnurbscurve_as_lwgeom(curve);
+}
+
 /**
  * Create an empty NURBS curve with the specified dimensionality.
  */

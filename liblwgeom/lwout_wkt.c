@@ -609,65 +609,56 @@ static void lwpsurface_to_wkt_sb(const LWPSURFACE *psurf, stringbuffer_t *sb, in
 	stringbuffer_append_len(sb, ")", 1);
 }
 
-/*
- * NURBSCURVE - Format simplifié : NURBSCURVE((x1 y1 [z1] [m1] w1, x2 y2 [z2] [m2] w2, ...), degree)
- */
 static void lwnurbscurve_to_wkt_sb(const LWNURBSCURVE *curve, stringbuffer_t *sb, int precision, uint8_t variant)
 {
-	if (!(variant & WKT_NO_TYPE)) {
-		stringbuffer_append_len(sb, "NURBSCURVE", 10);
-		dimension_qualifiers_to_wkt_sb((LWGEOM*)curve, sb, variant);
-	}
+    if (!(variant & WKT_NO_TYPE)) {
+        stringbuffer_append_len(sb, "NURBSCURVE", 10);
+        dimension_qualifiers_to_wkt_sb((LWGEOM*)curve, sb, variant);
+    }
 
-	if (!curve->points || curve->points->npoints == 0) {
-		empty_to_wkt_sb(sb);
-		return;
-	}
+    if (!curve->points || curve->points->npoints == 0) {
+        empty_to_wkt_sb(sb);
+        return;
+    }
 
-	stringbuffer_append_len(sb, "((", 2);
+    stringbuffer_append_len(sb, "((", 2);
 
-	/* Points de contrôle avec poids intégrés */
-	for (uint32_t i = 0; i < curve->points->npoints; i++) {
-		POINT4D p4d;
-		getPoint4d_p(curve->points, i, &p4d);
+    // Points de contrôle (sans poids)
+    ptarray_to_wkt_sb(curve->points, sb, precision, variant | WKT_NO_PARENS);
 
-		if (i > 0) stringbuffer_append_len(sb, ",", 1);
+    stringbuffer_append_len(sb, ")", 1);
 
-		/* Coordonnées du point de contrôle */
-		stringbuffer_aprintf(sb, "%.*g %.*g", precision, p4d.x, precision, p4d.y);
+    // Poids si non uniformes
+    if (curve->weights && curve->nweights > 0) {
+        bool has_varying_weights = false;
+        for (uint32_t i = 1; i < curve->nweights && !has_varying_weights; i++) {
+            if (fabs(curve->weights[i] - curve->weights[0]) > 1e-10) {
+                has_varying_weights = true;
+            }
+        }
 
-		/* Ajouter Z si présent */
-		if (FLAGS_GET_Z(curve->flags)) {
-			stringbuffer_aprintf(sb, " %.*g", precision, p4d.z);
-		}
+        if (has_varying_weights) {
+            stringbuffer_append_len(sb, ",(", 2);
+            for (uint32_t i = 0; i < curve->nweights; i++) {
+                if (i > 0) stringbuffer_append_len(sb, ",", 1);
+                stringbuffer_aprintf(sb, "%.*g", precision, curve->weights[i]);
+            }
+            stringbuffer_append_len(sb, ")", 1);
+        }
+    }
 
-		/* Ajouter M si présent */
-		if (FLAGS_GET_M(curve->flags)) {
-			stringbuffer_aprintf(sb, " %.*g", precision, p4d.m);
-		}
+    // Vecteur de nœuds si présent
+    if (curve->knots && curve->nknots > 0) {
+        stringbuffer_append_len(sb, ",(", 2);
+        for (uint32_t i = 0; i < curve->nknots; i++) {
+            if (i > 0) stringbuffer_append_len(sb, ",", 1);
+            stringbuffer_aprintf(sb, "%.*g", precision, curve->knots[i]);
+        }
+        stringbuffer_append_len(sb, ")", 1);
+    }
 
-		/* Ajouter le poids */
-		double weight = 1.0;
-		if (curve->weights && i < curve->nweights) {
-			weight = curve->weights[i];
-		}
-		stringbuffer_aprintf(sb, " %.*g", precision, weight);
-	}
-
-	stringbuffer_append_len(sb, "),", 2);
-
-	/* Si des nœuds sont présents, les ajouter */
-	if (curve->knots && curve->nknots > 0) {
-		stringbuffer_append_len(sb, "(", 1);
-		for (uint32_t i = 0; i < curve->nknots; i++) {
-			if (i > 0) stringbuffer_append_len(sb, ",", 1);
-			stringbuffer_aprintf(sb, "%.*g", precision, curve->knots[i]);
-		}
-		stringbuffer_append_len(sb, "),", 2);
-	}
-
-	/* Degré */
-	stringbuffer_aprintf(sb, "%d)", curve->degree);
+    // Degré
+    stringbuffer_aprintf(sb, ",%d)", curve->degree);
 }
 
 /*
