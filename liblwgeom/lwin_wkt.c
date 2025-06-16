@@ -892,6 +892,38 @@ LWGEOM* wkt_parser_collection_finalize(int lwtype, LWGEOM *geom, char *dimension
 }
 
 /**
+* Build a 2D coordinate with weight (for NURBS) - stored as XYM
+*/
+POINT wkt_parser_nurbs_coord_3(double c1, double c2, double weight)
+{
+	POINT p;
+	p.flags = 0;
+	p.x = c1;
+	p.y = c2;
+	p.z = 0.0;
+	p.m = weight;  // Le poids va dans M
+	FLAGS_SET_Z(p.flags, 0);
+	FLAGS_SET_M(p.flags, 1);
+	return p;
+}
+
+/**
+* Build a 3D coordinate with weight (for NURBS) - stored as XYZM
+*/
+POINT wkt_parser_nurbs_coord_4(double c1, double c2, double c3, double weight)
+{
+	POINT p;
+	p.flags = 0;
+	p.x = c1;
+	p.y = c2;
+	p.z = c3;
+	p.m = weight;  // Le poids va dans M
+	FLAGS_SET_Z(p.flags, 1);
+	FLAGS_SET_M(p.flags, 1);
+	return p;
+}
+
+/**
  * Create a new NURBS curve from WKT parsing
  */
 LWGEOM* wkt_parser_nurbscurve_new(POINTARRAY *points, POINTARRAY *knot_array, int degree, char *dimensionality)
