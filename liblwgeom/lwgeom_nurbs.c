@@ -40,19 +40,23 @@ lwnurbscurve_construct(int32_t srid, uint32_t degree, POINTARRAY *points,
 
 	if (degree < 1 || degree > 10)
 		return NULL;
-	if (!points || points->npoints < 2)
-		return NULL;
 
 	result = lwalloc(sizeof(LWNURBSCURVE));
 	result->type = NURBSCURVETYPE;
-	result->flags = points->flags;
-	FLAGS_SET_BBOX(result->flags, 0);
 	result->srid = srid;
 	result->bbox = NULL;
 	result->degree = degree;
-	result->points = points;
 	result->nweights = nweights;
 	result->nknots = nknots;
+
+	/* Set flags from points */
+	if (points) {
+		result->flags = points->flags;
+		result->points = points; /* Take ownership */
+	} else {
+		result->flags = 0;
+		result->points = NULL;
+	}
 
 	/* Copy weights if provided */
 	if (weights && nweights > 0) {
