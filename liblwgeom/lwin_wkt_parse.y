@@ -144,6 +144,7 @@ int lwgeom_parse_wkt(LWGEOM_PARSER_RESULT *parser_result, char *wktstr, int pars
 %type <ptarrayvalue> ptarray
 %type <ptarrayvalue> nurbs_ptarray
 %type <ptarrayvalue> knot_list
+%type <ptarrayvalue> weight_list
 %type <coordinatevalue> nurbs_coordinate
 %type <coordinatevalue> coordinate
 %type <geometryvalue> circularstring
@@ -187,8 +188,8 @@ int lwgeom_parse_wkt(LWGEOM_PARSER_RESULT *parser_result, char *wktstr, int pars
 %destructor { ptarray_free($$); } ptarray
 %destructor { ptarray_free($$); } ring
 %destructor { ptarray_free($$); } patchring
-%destructor { ptarray_free($$); } knots_list
 %destructor { ptarray_free($$); } nurbs_ptarray
+%destructor { ptarray_free($$); } knot_list
 %destructor { lwgeom_free($$); } curvering_list
 %destructor { lwgeom_free($$); } triangle_list
 %destructor { lwgeom_free($$); } surface_list
@@ -555,24 +556,47 @@ coordinate :
 		{ $$ = wkt_parser_coord_4($1, $2, $3, $4); WKT_ERROR(); } ;
 
 nurbscurve :
+	/* Basic patterns without explicit dimensionality */
 	NURBSCURVE_TOK LBRACKET_TOK LBRACKET_TOK ptarray RBRACKET_TOK COMMA_TOK DOUBLE_TOK RBRACKET_TOK
 		{
-			$$ = wkt_parser_nurbscurve_new($4, NULL, (int)$7, NULL);
+			// Simple case: just points and degree
+			$$ = wkt_parser_nurbscurve_new_separated($4, NULL, NULL, (int)$7, NULL);
 			WKT_ERROR();
 		}
-	| NURBSCURVE_TOK LBRACKET_TOK LBRACKET_TOK ptarray RBRACKET_TOK COMMA_TOK LBRACKET_TOK knot_list RBRACKET_TOK COMMA_TOK DOUBLE_TOK RBRACKET_TOK
+	| NURBSCURVE_TOK LBRACKET_TOK LBRACKET_TOK ptarray RBRACKET_TOK COMMA_TOK LBRACKET_TOK weight_list RBRACKET_TOK COMMA_TOK DOUBLE_TOK RBRACKET_TOK
 		{
-			$$ = wkt_parser_nurbscurve_new($4, $8, (int)$11, NULL);
+			// With explicit weights
+			$$ = wkt_parser_nurbscurve_new_separated($4, $8, NULL, (int)$11, NULL);
 			WKT_ERROR();
 		}
-	| NURBSCURVE_TOK DIMENSIONALITY_TOK LBRACKET_TOK LBRACKET_TOK nurbs_ptarray RBRACKET_TOK COMMA_TOK DOUBLE_TOK RBRACKET_TOK
+	| NURBSCURVE_TOK LBRACKET_TOK LBRACKET_TOK ptarray RBRACKET_TOK COMMA_TOK LBRACKET_TOK weight_list RBRACKET_TOK COMMA_TOK LBRACKET_TOK knot_list RBRACKET_TOK COMMA_TOK DOUBLE_TOK RBRACKET_TOK
 		{
-			$$ = wkt_parser_nurbscurve_new($5, NULL, (int)$8, $2);
+			// Full specification: points, weights, knots, and degree
+			$$ = wkt_parser_nurbscurve_new_separated($4, $8, $12, (int)$15, NULL);
 			WKT_ERROR();
 		}
-	| NURBSCURVE_TOK DIMENSIONALITY_TOK LBRACKET_TOK LBRACKET_TOK nurbs_ptarray RBRACKET_TOK COMMA_TOK LBRACKET_TOK knot_list RBRACKET_TOK COMMA_TOK DOUBLE_TOK RBRACKET_TOK
+
+	/* Parallel structure for explicit dimensionality */
+	| NURBSCURVE_TOK DIMENSIONALITY_TOK LBRACKET_TOK LBRACKET_TOK ptarray RBRACKET_TOK COMMA_TOK DOUBLE_TOK RBRACKET_TOK
 		{
-			$$ = wkt_parser_nurbscurve_new($5, $9, (int)$12, $2);
+			$$ = wkt_parser_nurbscurve_new_separated($5, NULL, NULL, (int)$8, $2);
+			WKT_ERROR();
+		}
+	| NURBSCURVE_TOK DIMENSIONALITY_TOK LBRACKET_TOK LBRACKET_TOK ptarray RBRACKET_TOK COMMA_TOK LBRACKET_TOK weight_list RBRACKET_TOK COMMA_TOK DOUBLE_TOK RBRACKET_TOK
+		{
+			$$ = wkt_parser_nurbscurve_new_separated($5, $9, NULL, (int)$12, $2);
+			WKT_ERROR();
+		}
+	| NURBSCURVE_TOK DIMENSIONALITY_TOK LBRACKET_TOK LBRACKET_TOK ptarray RBRACKET_TOK COMMA_TOK LBRACKET_TOK weight_list RBRACKET_TOK COMMA_TOK LBRACKET_TOK knot_list RBRACKET_TOK COMMA_TOK DOUBLE_TOK RBRACKET_TOK
+		{
+			$$ = wkt_parser_nurbscurve_new_separated($5, $9, $13, (int)$16, $2);
+			WKT_ERROR();
+		}
+
+	/* EMPTY */
+	| NURBSCURVE_TOK EMPTY_TOK
+		{
+			$$ = wkt_parser_nurbscurve_empty(NULL);
 			WKT_ERROR();
 		}
 	| NURBSCURVE_TOK DIMENSIONALITY_TOK EMPTY_TOK
@@ -580,9 +604,17 @@ nurbscurve :
 			$$ = wkt_parser_nurbscurve_empty($2);
 			WKT_ERROR();
 		}
-	| NURBSCURVE_TOK EMPTY_TOK
+	;
+
+weight_list :
+	weight_list COMMA_TOK DOUBLE_TOK
 		{
-			$$ = wkt_parser_nurbscurve_empty(NULL);
+			$$ = wkt_parser_ptarray_add_coord($1, wkt_parser_coord_2($3, 0));
+			WKT_ERROR();
+		}
+	| DOUBLE_TOK
+		{
+			$$ = wkt_parser_ptarray_new(wkt_parser_coord_2($1, 0));
 			WKT_ERROR();
 		}
 	;
