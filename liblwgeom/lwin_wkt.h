@@ -83,4 +83,5 @@ void wkt_parser_geometry_new(LWGEOM *geom, int32_t srid);
 POINT wkt_parser_nurbs_coord_3(double c1, double c2, double weight);
 POINT wkt_parser_nurbs_coord_4(double c1, double c2, double c3, double weight);
 LWGEOM* wkt_parser_nurbscurve_new(POINTARRAY *points, POINTARRAY *knot_array, int degree, char *dimensionality);
+LWGEOM* wkt_parser_nurbscurve_new_separated(POINTARRAY *points, POINTARRAY *weights, POINTARRAY *knots, int degree, char *dimensionality);
 LWGEOM* wkt_parser_nurbscurve_empty(char *dimensionality);
