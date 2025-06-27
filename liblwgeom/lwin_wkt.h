@@ -80,8 +80,8 @@ LWGEOM* wkt_parser_collection_add_geom(LWGEOM *col, LWGEOM *geom);
 LWGEOM* wkt_parser_collection_finalize(int lwtype, LWGEOM *col, char *dimensionality);
 void wkt_parser_geometry_new(LWGEOM *geom, int32_t srid);
 
-POINT wkt_parser_nurbs_coord_3(double c1, double c2, double weight);
-POINT wkt_parser_nurbs_coord_4(double c1, double c2, double c3, double weight);
-LWGEOM* wkt_parser_nurbscurve_new(POINTARRAY *points, POINTARRAY *knot_array, int degree, char *dimensionality);
-LWGEOM* wkt_parser_nurbscurve_new_separated(POINTARRAY *points, POINTARRAY *weights, POINTARRAY *knots, int degree, char *dimensionality);
-LWGEOM* wkt_parser_nurbscurve_empty(char *dimensionality);
+extern LWGEOM* wkt_parser_nurbscurve_new(uint32_t degree, POINTARRAY *control_points, POINTARRAY *knots, double start_m, double end_m, char *dimensionality);
+extern LWGEOM* wkt_parser_nurbscurve_empty(char *dimensionality);
+extern POINT wkt_parser_nurbspoint_weighted(POINT coord, double weight);
+extern NURBSPOINT wkt_parser_nurbspoint_new(double x, double y, double z, double m, double weight, lwflags_t flags);
+

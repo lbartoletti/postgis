@@ -198,15 +198,8 @@ lwcollection_is_empty(const LWCOLLECTION *col)
 static inline int
 lwnurbscurve_is_empty(const LWNURBSCURVE *curve)
 {
-    if (!curve)
+    if (!curve || !curve->points || curve->npoints == 0)
         return LW_TRUE;
-
-    if (!curve->points)
-        return LW_TRUE;
-
-    if (curve->points->npoints == 0)
-        return LW_TRUE;
-
     return LW_FALSE;
 }
 

@@ -95,6 +95,7 @@ TRIANGLE { return TRIANGLE_TOK; }
 TIN { return TIN_TOK; }
 POINT { return POINT_TOK; }
 NURBSCURVE { return NURBSCURVE_TOK; }
+NURBSPOINT { return NURBSPOINT_TOK; }
 EMPTY { return EMPTY_TOK; }
 
 Z|M|ZM {

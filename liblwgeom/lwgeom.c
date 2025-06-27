@@ -1267,12 +1267,11 @@ int lwgeom_needs_bbox(const LWGEOM *geom)
 	}
 	else if ( geom->type == NURBSCURVETYPE )
 	{
-		return LW_FALSE;
-		// LWNURBSCURVE *nurbs = (LWNURBSCURVE*)geom;
-		// if ( !nurbs->points || nurbs->points->npoints <= 2 )
-		// 	return LW_FALSE;
-		// else
-		// 	return LW_TRUE;
+		LWNURBSCURVE *nurbs = (LWNURBSCURVE*)geom;
+		if ( nurbs->npoints <= 2 )
+			return LW_FALSE;
+		else
+			return LW_TRUE;
 	}
 	else if ( geom->type == MULTIPOINTTYPE )
 	{
@@ -2140,11 +2139,25 @@ lwgeom_scale(LWGEOM *geom, const POINT4D *factor)
 		case LINETYPE:
 		case CIRCSTRINGTYPE:
 		case TRIANGLETYPE:
-		case NURBSCURVETYPE:
 		{
 			LWLINE *l = (LWLINE*)geom;
 			ptarray_scale(l->points, factor);
 			break;
+		}
+		case NURBSCURVETYPE:
+		{
+				LWNURBSCURVE *curve = (LWNURBSCURVE*)geom;
+				uint32_t i;
+
+				for (i = 0; i < curve->npoints; i++) {
+						curve->points[i].x *= factor->x;
+						curve->points[i].y *= factor->y;
+						if (FLAGS_GET_Z(curve->flags))
+								curve->points[i].z *= factor->z;
+						if (FLAGS_GET_M(curve->flags))
+								curve->points[i].m *= factor->m;
+				}
+				break;
 		}
 		case POLYGONTYPE:
 		{

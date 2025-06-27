@@ -436,6 +436,14 @@ typedef struct
 }
 POINTARRAY;
 
+/**
+ * NURBSPOINT
+ */
+typedef struct {
+    double x, y, z, m, weight;
+    lwflags_t flags;
+} NURBSPOINT_WKT;
+
 /******************************************************************
 * GSERIALIZED
 */
@@ -668,20 +676,30 @@ typedef struct
 LWTIN;
 
 /**
-* NURBS curve type
+* Weighted point structure for NURBS curves
+* Each point contains coordinates and its associated weight
 */
 typedef struct {
-    GBOX *bbox;
-    POINTARRAY *points;   /* Control points */
-    int32_t    srid;
-    lwflags_t  flags;
-    uint8_t    type;      /* NURBSCURVETYPE */
-    char       pad[1];
-    uint32_t   degree;    /* Curve degree */
-    uint32_t   nweights;  /* Number of weights */
-    uint32_t   nknots;    /* Number of knots */
-    double    *weights;   /* (NULL if non-rational) */
-    double    *knots;     /* (NULL if Bezier) */
+    double x, y, z, m;  /* Coordinates - z,m optional based on flags */
+    double weight;      /* Weight value for rational NURBS */
+} NURBSPOINT;
+
+/**
+* NURBS curve type following ISO/IEC 13249-3:2016
+*/
+typedef struct {
+    GBOX *bbox;           /* Bounding box */
+    NURBSPOINT *points;   /* Weighted control points array */
+    int32_t srid;         /* Spatial reference system ID */
+    lwflags_t flags;      /* Dimensional and property flags */
+    uint8_t type;         /* NURBSCURVETYPE */
+    char pad[1];          /* Alignment padding */
+    uint32_t degree;      /* Curve degree (1-10) */
+    uint32_t npoints;     /* Number of control points */
+    uint32_t nknots;      /* Number of knot values */
+    double *knots;        /* Knot vector (NULL for uniform) */
+    double start_measure; /* Start measure for M curves */
+    double end_measure;   /* End measure for M curves */
 } LWNURBSCURVE;
 
 /* Casts LWGEOM->LW* (return NULL if cast is illegal) */
@@ -1536,7 +1554,7 @@ extern LWPOLY* lwpoly_construct(int32_t srid, GBOX *bbox, uint32_t nrings, POINT
 extern LWCURVEPOLY* lwcurvepoly_construct(int32_t srid, GBOX *bbox, uint32_t nrings, LWGEOM **geoms);
 extern LWTRIANGLE* lwtriangle_construct(int32_t srid, GBOX *bbox, POINTARRAY *points);
 extern LWCOLLECTION* lwcollection_construct(uint8_t type, int32_t srid, GBOX *bbox, uint32_t ngeoms, LWGEOM **geoms);
-extern LWNURBSCURVE* lwnurbscurve_construct(int32_t srid, uint32_t degree, POINTARRAY *points, double *weights, double *knots, uint32_t nweights, uint32_t nknots);
+extern LWNURBSCURVE* lwnurbscurve_construct(int32_t srid, uint32_t degree, NURBSPOINT *points, uint32_t npoints, double *knots, uint32_t nknots, double start_m, double end_m);
 
 /*
 * Empty geometry constructors.
@@ -2674,9 +2692,15 @@ LWGEOM* lwgeom_triangulate_polygon(const LWGEOM* geom);
 int * lwgeom_cluster_kmeans(const LWGEOM **geoms, uint32_t n, uint32_t k, double max_radius);
 
 /* NURBS */
-extern POINTARRAY* lwnurbscurve_get_control_points(const LWNURBSCURVE *curve);
-extern LWLINE* lwnurbscurve_stroke(const LWNURBSCURVE *curve, uint32_t segments);
+/* NURBS curve analysis and conversion functions */
 extern int lwnurbscurve_validate(const LWNURBSCURVE *curve);
+extern LWLINE* lwnurbscurve_stroke(const LWNURBSCURVE *curve, uint32_t segments);
+// extern POINTARRAY* lwnurbscurve_get_control_points_euclidean(const LWNURBSCURVE *curve);
+
+/* ISO-compliant NURBS point construction */
+// extern NURBSPOINT nurbspoint_make(double x, double y, double weight);
+// extern NURBSPOINT nurbspoint_make_3d(double x, double y, double z, double weight);
+// extern NURBSPOINT nurbspoint_make_4d(double x, double y, double z, double m, double weight);
 
 #include "lwinline.h"
 

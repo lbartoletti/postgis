@@ -4,9 +4,13 @@
 -- Availability: 3.7.0
 
 -- NURBS curve creation
-CREATE OR REPLACE FUNCTION ST_MakeNurbsCurve(integer, geometry)
+CREATE OR REPLACE FUNCTION ST_MakeNurbsCurve(integer, geometry, float8[], float8[])
     RETURNS geometry AS 'MODULE_PATHNAME', 'ST_MakeNurbsCurve'
     LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE;
+
+CREATE OR REPLACE FUNCTION ST_MakeNurbsCurve(integer, geometry)
+    RETURNS geometry AS $$ SELECT ST_MakeNurbsCurve($1, $2, NULL, NULL) $$
+    LANGUAGE 'sql' IMMUTABLE STRICT PARALLEL SAFE;
 
 -- NURBS curve properties
 CREATE OR REPLACE FUNCTION ST_NurbsCurveDegree(geometry)
@@ -24,9 +28,4 @@ CREATE OR REPLACE FUNCTION ST_NurbsCurveToLineString(geometry, integer)
 
 CREATE OR REPLACE FUNCTION ST_NurbsCurveToLineString(geometry)
     RETURNS geometry AS $$ SELECT ST_NurbsCurveToLineString($1, 32) $$
-    LANGUAGE 'sql' IMMUTABLE STRICT PARALLEL SAFE;
-
--- Linestring to NURBS conversion
-CREATE OR REPLACE FUNCTION ST_LineToNurbsCurve(geometry, integer DEFAULT 1)
-    RETURNS geometry AS $$ SELECT ST_MakeNurbsCurve($2, $1) $$
     LANGUAGE 'sql' IMMUTABLE STRICT PARALLEL SAFE;

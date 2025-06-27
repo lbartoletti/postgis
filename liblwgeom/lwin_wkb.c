@@ -734,67 +734,91 @@ static LWCOLLECTION* lwcollection_from_wkb_state(wkb_parse_state *s)
 
 static LWNURBSCURVE* lwnurbscurve_from_wkb_state(wkb_parse_state *s)
 {
-    uint32_t degree, nweights, nknots, npoints;
-    double *weights = NULL, *knots = NULL;
-    POINTARRAY *points = NULL;
+    uint32_t degree, npoints, nknots, i;
+    NURBSPOINT *points = NULL;
+    double *knots = NULL;
+    double start_m = 0.0, end_m = 0.0;
+    uint8_t has_weight_bit;
 
     degree = integer_from_wkb_state(s);
-    if (s->error) return NULL;
-
-    nweights = integer_from_wkb_state(s);
-    if (s->error) return NULL;
-
-    nknots = integer_from_wkb_state(s);
     if (s->error) return NULL;
 
     npoints = integer_from_wkb_state(s);
     if (s->error) return NULL;
 
-    if (nweights > 0) {
-        weights = lwalloc(sizeof(double) * nweights);
-        for (uint32_t i = 0; i < nweights; i++) {
-            weights[i] = double_from_wkb_state(s);
-            if (s->error) {
-                lwfree(weights);
-                return NULL;
+    /* Read weighted control points */
+    if (npoints > 0) {
+        points = lwalloc(sizeof(NURBSPOINT) * npoints);
+
+        for (i = 0; i < npoints; i++) {
+            /* Skip byte order for each point */
+            byte_from_wkb_state(s);
+            if (s->error) break;
+
+            /* Read coordinates */
+            points[i].x = double_from_wkb_state(s);
+            points[i].y = double_from_wkb_state(s);
+
+            if (s->has_z) {
+                points[i].z = double_from_wkb_state(s);
+            } else {
+                points[i].z = 0.0;
             }
+
+            if (s->has_m) {
+                points[i].m = double_from_wkb_state(s);
+            } else {
+                points[i].m = 0.0;
+            }
+
+            /* Read weight bit and weight */
+            has_weight_bit = byte_from_wkb_state(s);
+            if (has_weight_bit) {
+                points[i].weight = double_from_wkb_state(s);
+            } else {
+                points[i].weight = 1.0;
+            }
+
+            if (s->error) break;
         }
+
+        if (s->error) {
+            lwfree(points);
+            return NULL;
+        }
+    }
+
+    /* Read knot vector */
+    nknots = integer_from_wkb_state(s);
+    if (s->error) {
+        if (points) lwfree(points);
+        return NULL;
     }
 
     if (nknots > 0) {
         knots = lwalloc(sizeof(double) * nknots);
-        for (uint32_t i = 0; i < nknots; i++) {
+        for (i = 0; i < nknots; i++) {
             knots[i] = double_from_wkb_state(s);
             if (s->error) {
-                lwfree(weights);
                 lwfree(knots);
+                if (points) lwfree(points);
                 return NULL;
             }
         }
     }
 
-    if (npoints > 0) {
-        uint32_t ndims = 2;
-        if (s->has_z) ndims++;
-        if (s->has_m) ndims++;
-
-        points = ptarray_construct(s->has_z, s->has_m, npoints);
-        double *dlist = (double*)(points->serialized_pointlist);
-
-        for (uint32_t i = 0; i < npoints * ndims; i++) {
-            dlist[i] = double_from_wkb_state(s);
-            if (s->error) {
-                lwfree(weights);
-                lwfree(knots);
-                ptarray_free(points);
-                return NULL;
-            }
+    /* Read measure values for M curves */
+    if (s->has_m) {
+        start_m = double_from_wkb_state(s);
+        end_m = double_from_wkb_state(s);
+        if (s->error) {
+            if (knots) lwfree(knots);
+            if (points) lwfree(points);
+            return NULL;
         }
-    } else {
-        points = ptarray_construct_empty(s->has_z, s->has_m, 1);
     }
 
-    return lwnurbscurve_construct(s->srid, degree, points, weights, knots, nweights, nknots);
+    return lwnurbscurve_construct(s->srid, degree, points, npoints, knots, nknots, start_m, end_m);
 }
 
 /**

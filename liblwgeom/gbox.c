@@ -778,13 +778,48 @@ int lwgeom_calculate_gbox_cartesian(const LWGEOM *lwgeom, GBOX *gbox)
 	case COLLECTIONTYPE:
 		return lwcollection_calculate_gbox_cartesian((LWCOLLECTION *)lwgeom, gbox);
 	case NURBSCURVETYPE:
-	{
-		LWNURBSCURVE *nurbs = (LWNURBSCURVE*)lwgeom;
-		if (nurbs->points && nurbs->points->npoints > 0)
-			return ptarray_calculate_gbox_cartesian(nurbs->points, gbox);
-		else
-			return LW_FAILURE;
-	}
+		{
+			LWNURBSCURVE *nurbs = (LWNURBSCURVE*)lwgeom;
+			uint32_t i;
+			POINT4D pt;
+
+			if (!nurbs->points || nurbs->npoints == 0)
+				return LW_FAILURE;
+
+			/* Initialize with first point */
+			pt.x = nurbs->points[0].x;
+			pt.y = nurbs->points[0].y;
+			gbox->xmin = gbox->xmax = pt.x;
+			gbox->ymin = gbox->ymax = pt.y;
+
+			if (FLAGS_GET_Z(lwgeom->flags)) {
+				pt.z = nurbs->points[0].z;
+				gbox->zmin = gbox->zmax = pt.z;
+			}
+			if (FLAGS_GET_M(lwgeom->flags)) {
+				gbox->mmin = nurbs->start_measure;
+				gbox->mmax = nurbs->end_measure;
+			}
+
+			/* Expand with remaining control points */
+			for (i = 1; i < nurbs->npoints; i++) {
+				pt.x = nurbs->points[i].x;
+				pt.y = nurbs->points[i].y;
+
+				if (pt.x < gbox->xmin) gbox->xmin = pt.x;
+				if (pt.x > gbox->xmax) gbox->xmax = pt.x;
+				if (pt.y < gbox->ymin) gbox->ymin = pt.y;
+				if (pt.y > gbox->ymax) gbox->ymax = pt.y;
+
+				if (FLAGS_GET_Z(lwgeom->flags)) {
+					pt.z = nurbs->points[i].z;
+					if (pt.z < gbox->zmin) gbox->zmin = pt.z;
+					if (pt.z > gbox->zmax) gbox->zmax = pt.z;
+				}
+			}
+
+			return LW_SUCCESS;
+		}
 	}
 	/* Never get here, please. */
 	lwerror("unsupported type (%d) - %s", lwgeom->type, lwtype_name(lwgeom->type));

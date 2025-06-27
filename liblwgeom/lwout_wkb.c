@@ -673,22 +673,30 @@ static uint8_t* lwcollection_to_wkb_buf(const LWCOLLECTION *col, uint8_t *buf, u
 static size_t lwnurbscurve_to_wkb_size(const LWNURBSCURVE *curve, uint8_t variant)
 {
     size_t size = WKB_BYTE_SIZE + WKB_INT_SIZE; /* endian + type */
+    uint32_t i;
 
-    /* Extended WKB needs space for optional SRID integer */
-    if ( lwgeom_wkb_needs_srid((LWGEOM*)curve, variant) )
+    if (lwgeom_wkb_needs_srid((LWGEOM*)curve, variant))
         size += WKB_INT_SIZE;
 
     size += WKB_INT_SIZE; /* degree */
-    size += WKB_INT_SIZE; /* nweights */
-    size += WKB_INT_SIZE; /* nknots */
     size += WKB_INT_SIZE; /* npoints */
 
-    if (curve->weights && curve->nweights > 0)
-        size += WKB_DOUBLE_SIZE * curve->nweights;
-    if (curve->knots && curve->nknots > 0)
-        size += WKB_DOUBLE_SIZE * curve->nknots;
-    if (curve->points)
-        size += ptarray_to_wkb_size(curve->points, variant | WKB_NO_NPOINTS);
+    /* Weighted points */
+    for (i = 0; i < curve->npoints; i++) {
+        size += WKB_BYTE_SIZE; /* endian for point */
+        size += FLAGS_NDIMS(curve->flags) * WKB_DOUBLE_SIZE; /* coordinates */
+        size += WKB_BYTE_SIZE; /* weight bit */
+        if (curve->points[i].weight != 1.0) {
+            size += WKB_DOUBLE_SIZE; /* weight value */
+        }
+    }
+
+    size += WKB_INT_SIZE; /* nknots */
+    size += curve->nknots * WKB_DOUBLE_SIZE; /* knots */
+
+    if (FLAGS_GET_M(curve->flags)) {
+        size += 2 * WKB_DOUBLE_SIZE; /* start_m, end_m */
+    }
 
     return size;
 }
@@ -696,6 +704,8 @@ static size_t lwnurbscurve_to_wkb_size(const LWNURBSCURVE *curve, uint8_t varian
 static uint8_t* lwnurbscurve_to_wkb_buf(const LWNURBSCURVE *curve, uint8_t *buf, uint8_t variant)
 {
     uint32_t wkb_type = lwgeom_wkb_type((LWGEOM*)curve, variant);
+    uint32_t i;
+    uint8_t weight_bit;
 
     /* Write endian flag */
     buf = endian_to_wkb_buf(buf, variant);
@@ -703,35 +713,52 @@ static uint8_t* lwnurbscurve_to_wkb_buf(const LWNURBSCURVE *curve, uint8_t *buf,
     /* Write type */
     buf = integer_to_wkb_buf(wkb_type, buf, variant);
 
-    /* Set the optional SRID for extended variant */
-    if ( lwgeom_wkb_needs_srid((LWGEOM*)curve, variant) )
+    /* Write optional SRID */
+    if (lwgeom_wkb_needs_srid((LWGEOM*)curve, variant))
         buf = integer_to_wkb_buf(curve->srid, buf, variant);
 
     /* Write degree */
     buf = integer_to_wkb_buf(curve->degree, buf, variant);
 
-    /* Write counts */
-    buf = integer_to_wkb_buf(curve->nweights, buf, variant);
+    /* Write point count */
+    buf = integer_to_wkb_buf(curve->npoints, buf, variant);
+
+    /* Write weighted control points */
+    for (i = 0; i < curve->npoints; i++) {
+        /* Point endian */
+        buf = endian_to_wkb_buf(buf, variant);
+
+        /* Coordinates */
+        buf = double_to_wkb_buf(curve->points[i].x, buf, variant);
+        buf = double_to_wkb_buf(curve->points[i].y, buf, variant);
+
+        if (FLAGS_GET_Z(curve->flags)) {
+            buf = double_to_wkb_buf(curve->points[i].z, buf, variant);
+        }
+        if (FLAGS_GET_M(curve->flags)) {
+            buf = double_to_wkb_buf(curve->points[i].m, buf, variant);
+        }
+
+        /* Weight bit and value - use existing pattern */
+        weight_bit = (curve->points[i].weight != 1.0) ? 1 : 0;
+        *buf = weight_bit;
+        buf++;
+
+        if (weight_bit) {
+            buf = double_to_wkb_buf(curve->points[i].weight, buf, variant);
+        }
+    }
+
+    /* Write knot count and values */
     buf = integer_to_wkb_buf(curve->nknots, buf, variant);
-    buf = integer_to_wkb_buf(curve->points ? curve->points->npoints : 0, buf, variant);
-
-    /* Write weights */
-    if (curve->weights && curve->nweights > 0) {
-        for (uint32_t i = 0; i < curve->nweights; i++) {
-            buf = double_to_wkb_buf(curve->weights[i], buf, variant);
-        }
+    for (i = 0; i < curve->nknots; i++) {
+        buf = double_to_wkb_buf(curve->knots[i], buf, variant);
     }
 
-    /* Write knots */
-    if (curve->knots && curve->nknots > 0) {
-        for (uint32_t i = 0; i < curve->nknots; i++) {
-            buf = double_to_wkb_buf(curve->knots[i], buf, variant);
-        }
-    }
-
-    /* Write control points */
-    if (curve->points && curve->points->npoints > 0) {
-        buf = ptarray_to_wkb_buf(curve->points, buf, variant | WKB_NO_NPOINTS);
+    /* Write measure values for M curves */
+    if (FLAGS_GET_M(curve->flags)) {
+        buf = double_to_wkb_buf(curve->start_measure, buf, variant);
+        buf = double_to_wkb_buf(curve->end_measure, buf, variant);
     }
 
     return buf;

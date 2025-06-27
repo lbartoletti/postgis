@@ -504,13 +504,8 @@ char* lwstrdup(const char* a);
 void* lwalloc0(size_t sz);
 
 /* NURBS */
-LWLINE *lwnurbscurve_to_linestring(const LWNURBSCURVE *curve, uint32_t segments);
-int lwnurbscurve_validate(const LWNURBSCURVE *curve);
-POINTARRAY* lwnurbscurve_get_control_points(const LWNURBSCURVE *curve);
-double* lwnurbscurve_get_weights(const LWNURBSCURVE *curve);
-double* lwnurbscurve_get_knots(const LWNURBSCURVE *curve);
-LWLINE* lwnurbscurve_stroke(const LWNURBSCURVE *curve, uint32_t segments);
-POINT4D lwnurbscurve_evaluate_at(const LWNURBSCURVE *curve, double t);
-POINT4D lwnurbscurve_tangent_at(const LWNURBSCURVE *curve, double t);
+extern LWLINE *lwnurbscurve_to_linestring(const LWNURBSCURVE *curve, uint32_t segments);
+extern NURBSPOINT *nurbspoint_construct(double x, double y, double z, double m, double weight, lwflags_t flags);
+extern void nurbspoint_free(NURBSPOINT *point);
 
 #endif /* _LIBLWGEOM_INTERNAL_H */
