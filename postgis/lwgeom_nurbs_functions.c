@@ -38,7 +38,7 @@ PG_FUNCTION_INFO_V1(ST_MakeNurbsCurve);
 Datum ST_MakeNurbsCurve(PG_FUNCTION_ARGS)
 {
 	LWLINE *line = NULL;
-	int32_t degree = PG_GETARG_INT32(0);
+	uint32_t degree = (uint32_t)PG_GETARG_INT32(0);
 	GSERIALIZED *pcontrol_pts = PG_GETARG_GSERIALIZED_P(1);
 	LWGEOM *control_geom = lwgeom_from_gserialized(pcontrol_pts);
 	POINTARRAY *ctrl_pts = NULL;
