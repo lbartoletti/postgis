@@ -90,6 +90,8 @@ static uint32_t lwgeom_wkb_type(const LWGEOM *geom, uint8_t variant)
 		wkb_type = WKB_POINT_TYPE;
 		break;
 	case LINETYPE:
+		wkb_type = WKB_LINESTRING_TYPE;
+		break;
 	case NURBSCURVETYPE:
 		wkb_type = WKB_NURBSCURVE_TYPE;
 		break;
