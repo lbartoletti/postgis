@@ -1,32 +1,657 @@
 -----------------------------------------------------------------------
--- NURBS
+-- PostGIS NURBS (Non-Uniform Rational B-Spline) Functions
+--
+-- This file defines the complete SQL interface for NURBS curve operations
+-- in PostGIS. NURBS curves provide powerful mathematical modeling capabilities
+-- for complex curved geometries with precise control over shape and smoothness.
+--
+-- Function Categories:
+--   1. Basic Constructors - Create NURBS curves from control points
+--   2. Advanced Constructors - Create curves with weights, knots, interpolation
+--   3. Introspection Functions - Extract curve properties and validate
+--   4. Mathematical Evaluation - Evaluate curves at parameters, compute derivatives
+--   5. Geometric Transformations - Modify curve properties while preserving shape
+--   6. Analysis Functions - Compute geometric properties like length and curvature
+--   7. Conversion Functions - Transform to/from other geometric representations
+--
+-- Mathematical Background:
+-- NURBS curves are defined by:
+--   - Control Points: Define the curve's approximate shape
+--   - Weights: Control point influence (rational curves only)
+--   - Knot Vector: Parameter space subdivision
+--   - Degree: Polynomial order determining smoothness
+--
+-- Availability: PostGIS 3.7.0+
 -----------------------------------------------------------------------
--- Availability: 3.7.0
 
--- NURBS curve creation
-CREATE OR REPLACE FUNCTION ST_MakeNurbsCurve(integer, geometry)
-    RETURNS geometry AS 'MODULE_PATHNAME', 'ST_MakeNurbsCurve'
-    LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE;
+-----------------------------------------------------------------------
+-- SECTION 1: BASIC CONSTRUCTOR FUNCTIONS
+-- These functions create NURBS curves from fundamental parameters
+-----------------------------------------------------------------------
 
--- NURBS curve properties
-CREATE OR REPLACE FUNCTION ST_NurbsCurveDegree(geometry)
-    RETURNS integer AS 'MODULE_PATHNAME', 'ST_NurbsCurveDegree'
-    LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE;
+-- ST_MakeNurbsCurve(degree, control_points)
+-- Creates a basic NURBS curve with uniform weights (B-spline)
+-- Parameters:
+--   degree: Polynomial degree (1-10), higher = smoother
+--   control_points: LINESTRING geometry defining curve shape
+-- Returns: NURBS curve geometry
+-- Example: SELECT ST_MakeNurbsCurve(2, 'LINESTRING(0 0, 5 10, 10 0)'::geometry);
+CREATE OR REPLACE FUNCTION ST_MakeNurbsCurve(degree integer, control_points geometry)
+    RETURNS geometry
+    AS 'MODULE_PATHNAME', 'ST_MakeNurbsCurve'
+    LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE
+    COST 50;
 
-CREATE OR REPLACE FUNCTION ST_NurbsCurveControlPoints(geometry)
-    RETURNS geometry AS 'MODULE_PATHNAME', 'ST_NurbsCurveControlPoints'
-    LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE;
+-- ST_MakeNurbsCurve(degree, control_points, weights)
+-- Creates a rational NURBS curve with explicit weights
+-- Parameters:
+--   degree: Polynomial degree (1-10)
+--   control_points: LINESTRING geometry defining curve shape
+--   weights: Array of positive weights, one per control point
+-- Returns: Weighted NURBS curve geometry
+-- Example: SELECT ST_MakeNurbsCurve(2, 'LINESTRING(0 0, 5 10, 10 0)'::geometry, ARRAY[1.0, 2.0, 1.0]);
+CREATE OR REPLACE FUNCTION ST_MakeNurbsCurve(degree integer, control_points geometry, weights double precision[])
+    RETURNS geometry
+    AS 'MODULE_PATHNAME', 'ST_MakeNurbsCurveWithWeights'
+    LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE
+    COST 100;
 
--- NURBS to linestring conversion
-CREATE OR REPLACE FUNCTION ST_NurbsCurveToLineString(geometry, integer)
-    RETURNS geometry AS 'MODULE_PATHNAME', 'ST_NurbsCurveToLineString'
-    LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE;
+-- ST_MakeNurbsCurve(degree, control_points, weights, knots)
+-- Creates a complete NURBS curve with custom knot vector
+-- Parameters:
+--   degree: Polynomial degree (1-10)
+--   control_points: LINESTRING geometry defining curve shape
+--   weights: Array of positive weights (NULL for uniform weights)
+--   knots: Knot vector defining parameter space (NULL for uniform spacing)
+-- Returns: Complete NURBS curve geometry
+-- Note: Knot vector must have (npoints + degree + 1) elements and be non-decreasing
+-- Example: SELECT ST_MakeNurbsCurve(2, pts, weights, ARRAY[0,0,0,0.5,1,1,1]);
+CREATE OR REPLACE FUNCTION ST_MakeNurbsCurve(degree integer, control_points geometry,
+                                           weights double precision[], knots double precision[])
+    RETURNS geometry
+    AS 'MODULE_PATHNAME', 'ST_MakeNurbsCurveComplete'
+    LANGUAGE 'c' IMMUTABLE PARALLEL SAFE
+    COST 150;
 
-CREATE OR REPLACE FUNCTION ST_NurbsCurveToLineString(geometry)
-    RETURNS geometry AS $$ SELECT ST_NurbsCurveToLineString($1, 32) $$
-    LANGUAGE 'sql' IMMUTABLE STRICT PARALLEL SAFE;
+-----------------------------------------------------------------------
+-- SECTION 2: ADVANCED CONSTRUCTOR FUNCTIONS
+-- These functions provide specialized NURBS curve creation methods
+-----------------------------------------------------------------------
 
--- Linestring to NURBS conversion
-CREATE OR REPLACE FUNCTION ST_LineToNurbsCurve(geometry, integer DEFAULT 1)
-    RETURNS geometry AS $$ SELECT ST_MakeNurbsCurve($2, $1) $$
-    LANGUAGE 'sql' IMMUTABLE STRICT PARALLEL SAFE;
+-- ST_MakePeriodicNurbsCurve(degree, control_points, weights)
+-- Creates a periodic (closed) NURBS curve
+-- Parameters:
+--   degree: Polynomial degree (1-10)
+--   control_points: LINESTRING geometry (will be made periodic)
+--   weights: Array of weights (optional, NULL for uniform)
+-- Returns: Periodic NURBS curve that smoothly closes on itself
+-- Note: Periodic curves require special knot vector construction
+CREATE OR REPLACE FUNCTION ST_MakePeriodicNurbsCurve(degree integer, control_points geometry,
+                                                    weights double precision[] DEFAULT NULL)
+    RETURNS geometry
+    AS 'MODULE_PATHNAME', 'ST_MakePeriodicNurbsCurve'
+    LANGUAGE 'c' IMMUTABLE PARALLEL SAFE
+    COST 200;
+
+-- ST_InterpolateNurbsCurve(points, degree)
+-- Creates NURBS curve that passes through given points (global interpolation)
+-- Parameters:
+--   points: LINESTRING geometry of points to interpolate
+--   degree: Polynomial degree (default 3 for cubic smoothness)
+-- Returns: NURBS curve passing through all input points
+-- Note: Uses chord-length parameterization and solves linear system
+-- Example: SELECT ST_InterpolateNurbsCurve('LINESTRING(0 0, 2 5, 5 3, 8 1)'::geometry, 3);
+CREATE OR REPLACE FUNCTION ST_InterpolateNurbsCurve(points geometry, degree integer DEFAULT 3)
+    RETURNS geometry
+    AS 'MODULE_PATHNAME', 'ST_InterpolateNurbsCurve'
+    LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE
+    COST 300;
+
+-- ST_LineToNurbsCurve(linestring, degree)
+-- Convenience function to convert LINESTRING to NURBS curve
+-- Parameters:
+--   linestring: Input LINESTRING geometry
+--   degree: NURBS degree (default 1 for linear)
+-- Returns: NURBS curve representation of linestring
+CREATE OR REPLACE FUNCTION ST_LineToNurbsCurve(linestring geometry, degree integer DEFAULT 1)
+    RETURNS geometry
+    AS $$ SELECT ST_MakeNurbsCurve($2, $1) $$
+    LANGUAGE 'sql' IMMUTABLE STRICT PARALLEL SAFE
+    COST 50;
+
+-----------------------------------------------------------------------
+-- SECTION 3: INTROSPECTION FUNCTIONS
+-- These functions extract properties and validate NURBS curves
+-----------------------------------------------------------------------
+
+-- ST_NurbsCurveControlPoints(nurbscurve)
+-- Extracts control points as euclidean coordinates (removes weight influence)
+-- Parameters:
+--   nurbscurve: Input NURBS curve geometry
+-- Returns: LINESTRING of control points in euclidean space
+-- Note: For rational curves, divides homogeneous coordinates by weights
+CREATE OR REPLACE FUNCTION ST_NurbsCurveControlPoints(nurbscurve geometry)
+    RETURNS geometry
+    AS 'MODULE_PATHNAME', 'ST_NurbsCurveControlPoints'
+    LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE
+    COST 50;
+
+-- ST_NurbsCurveDegree(nurbscurve)
+-- Returns the polynomial degree of the NURBS curve
+-- Parameters:
+--   nurbscurve: Input NURBS curve geometry
+-- Returns: Integer degree (1-10)
+CREATE OR REPLACE FUNCTION ST_NurbsCurveDegree(nurbscurve geometry)
+    RETURNS integer
+    AS 'MODULE_PATHNAME', 'ST_NurbsCurveDegree'
+    LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE
+    COST 10;
+
+-- ST_NurbsCurveWeights(nurbscurve)
+-- Extracts weight values for rational NURBS curves
+-- Parameters:
+--   nurbscurve: Input NURBS curve geometry
+-- Returns: Array of weight values, NULL for non-rational curves
+CREATE OR REPLACE FUNCTION ST_NurbsCurveWeights(nurbscurve geometry)
+    RETURNS double precision[]
+    AS 'MODULE_PATHNAME', 'ST_NurbsCurveWeights'
+    LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE
+    COST 25;
+
+-- ST_NurbsCurveKnots(nurbscurve)
+-- Extracts the knot vector defining parameter space
+-- Parameters:
+--   nurbscurve: Input NURBS curve geometry
+-- Returns: Array of knot values, NULL for uniform parameterization
+CREATE OR REPLACE FUNCTION ST_NurbsCurveKnots(nurbscurve geometry)
+    RETURNS double precision[]
+    AS 'MODULE_PATHNAME', 'ST_NurbsCurveKnots'
+    LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE
+    COST 25;
+
+-- ST_NurbsCurveNumControlPoints(nurbscurve)
+-- Returns the number of control points
+-- Parameters:
+--   nurbscurve: Input NURBS curve geometry
+-- Returns: Number of control points (integer)
+CREATE OR REPLACE FUNCTION ST_NurbsCurveNumControlPoints(nurbscurve geometry)
+    RETURNS integer
+    AS 'MODULE_PATHNAME', 'ST_NurbsCurveNumControlPoints'
+    LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE
+    COST 10;
+
+-- ST_NurbsCurveIsRational(nurbscurve)
+-- Determines if curve uses rational (weighted) formulation
+-- Parameters:
+--   nurbscurve: Input NURBS curve geometry
+-- Returns: TRUE if curve has weights, FALSE for polynomial B-spline
+CREATE OR REPLACE FUNCTION ST_NurbsCurveIsRational(nurbscurve geometry)
+    RETURNS boolean
+    AS 'MODULE_PATHNAME', 'ST_NurbsCurveIsRational'
+    LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE
+    COST 10;
+
+-- ST_NurbsCurveIsValid(nurbscurve)
+-- Comprehensive mathematical validation of NURBS curve
+-- Checks:
+--   - Sufficient control points for degree
+--   - Positive weights (if rational)
+--   - Non-decreasing knot vector
+--   - Correct knot vector length: npoints + degree + 1
+-- Parameters:
+--   nurbscurve: Input NURBS curve geometry
+-- Returns: TRUE if mathematically valid, FALSE otherwise
+CREATE OR REPLACE FUNCTION ST_NurbsCurveIsValid(nurbscurve geometry)
+    RETURNS boolean
+    AS 'MODULE_PATHNAME', 'ST_NurbsCurveIsValid'
+    LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE
+    COST 50;
+
+-----------------------------------------------------------------------
+-- SECTION 4: MATHEMATICAL EVALUATION FUNCTIONS
+-- These functions evaluate curves and compute mathematical properties
+-----------------------------------------------------------------------
+
+-- ST_NurbsCurveToLineString(nurbscurve, segments)
+-- Converts NURBS curve to LINESTRING approximation via tessellation
+-- Parameters:
+--   nurbscurve: Input NURBS curve geometry
+--   segments: Number of line segments (default 32, range 2-10000)
+-- Returns: LINESTRING approximation of curve
+CREATE OR REPLACE FUNCTION ST_NurbsCurveToLineString(nurbscurve geometry, segments integer)
+    RETURNS geometry
+    AS 'MODULE_PATHNAME', 'ST_NurbsCurveToLineString'
+    LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE
+    COST 100;
+
+-- ST_NurbsCurveToLineString(nurbscurve)
+-- Tessellation with default segment count
+CREATE OR REPLACE FUNCTION ST_NurbsCurveToLineString(nurbscurve geometry)
+    RETURNS geometry
+    AS $$ SELECT ST_NurbsCurveToLineString($1, 32) $$
+    LANGUAGE 'sql' IMMUTABLE STRICT PARALLEL SAFE
+    COST 100;
+
+-- ST_NurbsCurveEvaluate(nurbscurve, parameter)
+-- Evaluates curve at given parameter using De Boor's algorithm
+-- Parameters:
+--   nurbscurve: Input NURBS curve geometry
+--   parameter: Parameter value (typically 0.0 to 1.0)
+-- Returns: POINT geometry at evaluated position
+-- Note: Parameter range depends on knot vector, use ST_NurbsCurveParameterBounds
+CREATE OR REPLACE FUNCTION ST_NurbsCurveEvaluate(nurbscurve geometry, parameter double precision)
+    RETURNS geometry
+    AS 'MODULE_PATHNAME', 'ST_NurbsCurveEvaluate'
+    LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE
+    COST 150;
+
+-- ST_NurbsCurveTangent(nurbscurve, parameter)
+-- Computes tangent vector at given parameter (first derivative)
+-- Parameters:
+--   nurbscurve: Input NURBS curve geometry
+--   parameter: Parameter value for tangent computation
+-- Returns: LINESTRING representing tangent vector direction
+CREATE OR REPLACE FUNCTION ST_NurbsCurveTangent(nurbscurve geometry, parameter double precision)
+    RETURNS geometry
+    AS 'MODULE_PATHNAME', 'ST_NurbsCurveTangent'
+    LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE
+    COST 200;
+
+-- ST_NurbsCurveCurvature(nurbscurve, parameter)
+-- Computes curvature at given parameter (requires second derivative)
+-- Parameters:
+--   nurbscurve: Input NURBS curve geometry
+--   parameter: Parameter value for curvature computation
+-- Returns: Curvature value (1/radius, higher = more curved)
+CREATE OR REPLACE FUNCTION ST_NurbsCurveCurvature(nurbscurve geometry, parameter double precision)
+    RETURNS double precision
+    AS 'MODULE_PATHNAME', 'ST_NurbsCurveCurvature'
+    LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE
+    COST 250;
+
+-- ST_NurbsCurveDerivative(nurbscurve, parameter, order)
+-- Computes nth derivative at given parameter
+-- Parameters:
+--   nurbscurve: Input NURBS curve geometry
+--   parameter: Parameter value for derivative computation
+--   order: Derivative order (1=tangent, 2=acceleration, etc.)
+-- Returns: LINESTRING representing derivative vector
+CREATE OR REPLACE FUNCTION ST_NurbsCurveDerivative(nurbscurve geometry, parameter double precision,
+                                                  derivative_order integer)
+    RETURNS geometry
+    AS 'MODULE_PATHNAME', 'ST_NurbsCurveDerivative'
+    LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE
+    COST 300;
+
+-- ST_NurbsCurveParameterBounds(nurbscurve)
+-- Returns valid parameter range for curve evaluation
+-- Parameters:
+--   nurbscurve: Input NURBS curve geometry
+-- Returns: Array [t_min, t_max] defining parameter domain
+-- Note: Usually [0,1] for uniform curves, depends on knot vector
+CREATE OR REPLACE FUNCTION ST_NurbsCurveParameterBounds(nurbscurve geometry)
+    RETURNS double precision[]
+    AS 'MODULE_PATHNAME', 'ST_NurbsCurveParameterBounds'
+    LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE
+    COST 25;
+
+-----------------------------------------------------------------------
+-- SECTION 5: GEOMETRIC TRANSFORMATION FUNCTIONS
+-- These functions modify curve properties while preserving shape
+-----------------------------------------------------------------------
+
+-- ST_NurbsCurveElevateDegree(nurbscurve, new_degree)
+-- Increases curve degree without changing shape (adds flexibility)
+-- Parameters:
+--   nurbscurve: Input NURBS curve geometry
+--   new_degree: Target degree (must be higher than current)
+-- Returns: NURBS curve with elevated degree
+-- Note: Higher degree provides more local control but increases complexity
+CREATE OR REPLACE FUNCTION ST_NurbsCurveElevateDegree(nurbscurve geometry, new_degree integer)
+    RETURNS geometry
+    AS 'MODULE_PATHNAME', 'ST_NurbsCurveElevateDegree'
+    LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE
+    COST 200;
+
+-- ST_NurbsCurveRefineKnots(nurbscurve, new_knots)
+-- Inserts knots to add local control points without changing shape
+-- Parameters:
+--   nurbscurve: Input NURBS curve geometry
+--   new_knots: Array of parameter values to insert
+-- Returns: NURBS curve with additional control points
+-- Note: Uses Oslo algorithm for knot insertion
+CREATE OR REPLACE FUNCTION ST_NurbsCurveRefineKnots(nurbscurve geometry, new_knots double precision[])
+    RETURNS geometry
+    AS 'MODULE_PATHNAME', 'ST_NurbsCurveRefineKnots'
+    LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE
+    COST 250;
+
+-- ST_NurbsCurveReverse(nurbscurve)
+-- Reverses curve parameterization direction (end becomes start)
+-- Parameters:
+--   nurbscurve: Input NURBS curve geometry
+-- Returns: NURBS curve with reversed parameterization
+CREATE OR REPLACE FUNCTION ST_NurbsCurveReverse(nurbscurve geometry)
+    RETURNS geometry
+    AS 'MODULE_PATHNAME', 'ST_NurbsCurveReverse'
+    LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE
+    COST 100;
+
+-- ST_NurbsCurveSplit(nurbscurve, parameter)
+-- Splits curve at parameter into two separate curves
+-- Parameters:
+--   nurbscurve: Input NURBS curve geometry
+--   parameter: Split location in parameter space
+-- Returns: Array of two NURBS curve geometries
+CREATE OR REPLACE FUNCTION ST_NurbsCurveSplit(nurbscurve geometry, parameter double precision)
+    RETURNS geometry[]
+    AS 'MODULE_PATHNAME', 'ST_NurbsCurveSplit'
+    LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE
+    COST 300;
+
+-- ST_NurbsCurveSubdivide(nurbscurve, start_param, end_param)
+-- Extracts curve segment between two parameters
+-- Parameters:
+--   nurbscurve: Input NURBS curve geometry
+--   start_param: Beginning parameter value
+--   end_param: Ending parameter value
+-- Returns: NURBS curve representing extracted segment
+CREATE OR REPLACE FUNCTION ST_NurbsCurveSubdivide(nurbscurve geometry, start_param double precision,
+                                                  end_param double precision)
+    RETURNS geometry
+    AS 'MODULE_PATHNAME', 'ST_NurbsCurveSubdivide'
+    LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE
+    COST 250;
+
+-----------------------------------------------------------------------
+-- SECTION 6: GEOMETRIC ANALYSIS FUNCTIONS
+-- These functions compute geometric properties and spatial relationships
+-----------------------------------------------------------------------
+
+-- ST_NurbsCurveLength(nurbscurve, tolerance)
+-- Computes accurate arc length using adaptive quadrature
+-- Parameters:
+--   nurbscurve: Input NURBS curve geometry
+--   tolerance: Accuracy tolerance (default 0.001)
+-- Returns: Arc length of curve
+CREATE OR REPLACE FUNCTION ST_NurbsCurveLength(nurbscurve geometry, tolerance double precision DEFAULT 0.001)
+    RETURNS double precision
+    AS 'MODULE_PATHNAME', 'ST_NurbsCurveLength'
+    LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE
+    COST 500;
+
+-- ST_NurbsCurveLength(nurbscurve)
+-- Arc length with default tolerance
+CREATE OR REPLACE FUNCTION ST_NurbsCurveLength(nurbscurve geometry)
+    RETURNS double precision
+    AS $$ SELECT ST_NurbsCurveLength($1, 0.001) $$
+    LANGUAGE 'sql' IMMUTABLE STRICT PARALLEL SAFE
+    COST 500;
+
+-- ST_NurbsCurveClosestParameter(nurbscurve, point)
+-- Finds parameter value closest to given point (projection operation)
+-- Parameters:
+--   nurbscurve: Input NURBS curve geometry
+--   point: Target point for projection
+-- Returns: Parameter value of closest point on curve
+-- Note: Uses Newton-Raphson iteration with robust fallback methods
+CREATE OR REPLACE FUNCTION ST_NurbsCurveClosestParameter(nurbscurve geometry, point geometry)
+    RETURNS double precision
+    AS 'MODULE_PATHNAME', 'ST_NurbsCurveClosestParameter'
+    LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE
+    COST 400;
+
+-- ST_NurbsCurveClosestPoint(nurbscurve, point)
+-- Projects point onto curve (returns closest point on curve)
+-- Parameters:
+--   nurbscurve: Input NURBS curve geometry
+--   point: Target point for projection
+-- Returns: POINT geometry on curve closest to input point
+CREATE OR REPLACE FUNCTION ST_NurbsCurveClosestPoint(nurbscurve geometry, point geometry)
+    RETURNS geometry
+    AS 'MODULE_PATHNAME', 'ST_NurbsCurveClosestPoint'
+    LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE
+    COST 450;
+
+-- ST_NurbsCurveDistance(nurbscurve, point)
+-- Computes minimum distance from curve to point
+-- Parameters:
+--   nurbscurve: Input NURBS curve geometry
+--   point: Target point geometry
+-- Returns: Minimum distance value
+CREATE OR REPLACE FUNCTION ST_NurbsCurveDistance(nurbscurve geometry, point geometry)
+    RETURNS double precision
+    AS 'MODULE_PATHNAME', 'ST_NurbsCurveDistance'
+    LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE
+    COST 400;
+
+-- ST_NurbsCurveStartPoint(nurbscurve)
+-- Returns the starting point of the curve (at parameter t_min)
+-- Parameters:
+--   nurbscurve: Input NURBS curve geometry
+-- Returns: POINT geometry at curve start
+CREATE OR REPLACE FUNCTION ST_NurbsCurveStartPoint(nurbscurve geometry)
+    RETURNS geometry
+    AS 'MODULE_PATHNAME', 'ST_NurbsCurveStartPoint'
+    LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE
+    COST 50;
+
+-- ST_NurbsCurveEndPoint(nurbscurve)
+-- Returns the ending point of the curve (at parameter t_max)
+-- Parameters:
+--   nurbscurve: Input NURBS curve geometry
+-- Returns: POINT geometry at curve end
+CREATE OR REPLACE FUNCTION ST_NurbsCurveEndPoint(nurbscurve geometry)
+    RETURNS geometry
+    AS 'MODULE_PATHNAME', 'ST_NurbsCurveEndPoint'
+    LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE
+    COST 50;
+
+-----------------------------------------------------------------------
+-- SECTION 7: CONVERSION AND COMPATIBILITY FUNCTIONS
+-- These functions transform NURBS curves to other representations
+-----------------------------------------------------------------------
+
+-- ST_NurbsCurveToBezierSegments(nurbscurve)
+-- Decomposes NURBS curve into constituent Bézier curve segments
+-- Parameters:
+--   nurbscurve: Input NURBS curve geometry
+-- Returns: Array of LINESTRING geometries representing Bézier control polygons
+-- Note: Each segment is a polynomial curve of the same degree as original
+CREATE OR REPLACE FUNCTION ST_NurbsCurveToBezierSegments(nurbscurve geometry)
+    RETURNS geometry[]
+    AS 'MODULE_PATHNAME', 'ST_NurbsCurveToBezierSegments'
+    LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE
+    COST 300;
+
+-- ST_NurbsCurveToCircularArcs(nurbscurve, tolerance)
+-- Approximates curve with circular arc segments where appropriate
+-- Parameters:
+--   nurbscurve: Input NURBS curve geometry
+--   tolerance: Maximum deviation from original curve
+-- Returns: MULTICURVE geometry with circular arcs and line segments
+CREATE OR REPLACE FUNCTION ST_NurbsCurveToCircularArcs(nurbscurve geometry, tolerance double precision)
+    RETURNS geometry
+    AS 'MODULE_PATHNAME', 'ST_NurbsCurveToCircularArcs'
+    LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE
+    COST 600;
+
+-- ST_NurbsCurveSimplify(nurbscurve, tolerance)
+-- Reduces control point count while preserving shape within tolerance
+-- Parameters:
+--   nurbscurve: Input NURBS curve geometry
+--   tolerance: Maximum allowed shape deviation
+-- Returns: Simplified NURBS curve with fewer control points
+-- Note: Uses curve fitting algorithms to optimize representation
+CREATE OR REPLACE FUNCTION ST_NurbsCurveSimplify(nurbscurve geometry, tolerance double precision)
+    RETURNS geometry
+    AS 'MODULE_PATHNAME', 'ST_NurbsCurveSimplify'
+    LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE
+    COST 400;
+
+-- ST_NurbsCurveReparameterize(nurbscurve, method)
+-- Converts to uniform or specialized parameterization
+-- Parameters:
+--   nurbscurve: Input NURBS curve geometry
+--   method: Parameterization method ('uniform', 'chord_length', 'centripetal')
+-- Returns: NURBS curve with reparameterized knot vector
+CREATE OR REPLACE FUNCTION ST_NurbsCurveReparameterize(nurbscurve geometry, method text DEFAULT 'chord_length')
+    RETURNS geometry
+    AS 'MODULE_PATHNAME', 'ST_NurbsCurveReparameterize'
+    LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE
+    COST 250;
+
+-----------------------------------------------------------------------
+-- SECTION 8: CONVENIENCE AND COMPATIBILITY FUNCTIONS
+-- These provide easier interfaces and integration with existing PostGIS
+-----------------------------------------------------------------------
+
+-- ST_IsNurbsCurve(geometry)
+-- Tests if geometry is a NURBS curve type
+-- Parameters:
+--   geometry: Input geometry to test
+-- Returns: TRUE if geometry is NURBS curve, FALSE otherwise
+CREATE OR REPLACE FUNCTION ST_IsNurbsCurve(geometry)
+    RETURNS boolean
+    AS $$
+    SELECT CASE
+        WHEN $1 IS NULL THEN NULL
+        WHEN ST_GeometryType($1) = 'ST_NurbsCurve' THEN TRUE
+        ELSE FALSE
+    END
+    $$
+    LANGUAGE 'sql' IMMUTABLE STRICT PARALLEL SAFE
+    COST 5;
+
+-- ST_NurbsCurveApproximate(geometry, segments)
+-- Alias for ST_NurbsCurveToLineString for compatibility
+CREATE OR REPLACE FUNCTION ST_NurbsCurveApproximate(nurbscurve geometry, segments integer DEFAULT 32)
+    RETURNS geometry
+    AS $$ SELECT ST_NurbsCurveToLineString($1, $2) $$
+    LANGUAGE 'sql' IMMUTABLE STRICT PARALLEL SAFE
+    COST 100;
+
+-- ST_NurbsCurveIntermediatePoint(nurbscurve, fraction)
+-- Evaluates curve at fractional position between start and end
+-- Parameters:
+--   nurbscurve: Input NURBS curve geometry
+--   fraction: Position fraction (0.0 = start, 1.0 = end)
+-- Returns: POINT geometry at fractional position
+CREATE OR REPLACE FUNCTION ST_NurbsCurveIntermediatePoint(nurbscurve geometry, fraction double precision)
+    RETURNS geometry
+    AS $$
+    DECLARE
+        bounds double precision[];
+        param double precision;
+    BEGIN
+        bounds := ST_NurbsCurveParameterBounds($1);
+        param := bounds[1] + $2 * (bounds[2] - bounds[1]);
+        RETURN ST_NurbsCurveEvaluate($1, param);
+    END
+    $$
+    LANGUAGE 'plpgsql' IMMUTABLE STRICT PARALLEL SAFE
+    COST 200;
+
+-----------------------------------------------------------------------
+-- SECTION 9: AGGREGATE AND ADVANCED OPERATIONS
+-- These functions work with multiple curves or provide complex analysis
+-----------------------------------------------------------------------
+
+-- ST_NurbsCurvesUnion(geometry[])
+-- Attempts to create continuous curve from array of NURBS curves
+-- Parameters:
+--   curves: Array of NURBS curve geometries
+-- Returns: Single NURBS curve if possible, MULTICURVE otherwise
+-- Note: Requires curve endpoints to match within tolerance
+CREATE OR REPLACE FUNCTION ST_NurbsCurvesUnion(curves geometry[])
+    RETURNS geometry
+    AS $$
+    DECLARE
+        result geometry;
+        curve geometry;
+    BEGIN
+        -- Placeholder implementation
+        -- Full implementation would analyze curve connectivity
+        -- and attempt to create continuous representation
+
+        IF array_length(curves, 1) IS NULL OR array_length(curves, 1) = 0 THEN
+            RETURN NULL;
+        END IF;
+
+        IF array_length(curves, 1) = 1 THEN
+            RETURN curves[1];
+        END IF;
+
+        -- For now, return as MULTICURVE
+        SELECT ST_Collect(unnest) INTO result FROM unnest(curves);
+        RETURN result;
+    END
+    $$
+    LANGUAGE 'plpgsql' IMMUTABLE STRICT PARALLEL SAFE
+    COST 500;
+
+-----------------------------------------------------------------------
+-- SECTION 10: MATHEMATICAL VALIDATION AND DIAGNOSTIC FUNCTIONS
+-- These functions help debug and validate NURBS mathematical properties
+-----------------------------------------------------------------------
+
+-- ST_NurbsCurveDiagnostics(nurbscurve)
+-- Returns comprehensive diagnostic information about curve
+-- Parameters:
+--   nurbscurve: Input NURBS curve geometry
+-- Returns: JSON object with mathematical properties and validation results
+CREATE OR REPLACE FUNCTION ST_NurbsCurveDiagnostics(nurbscurve geometry)
+    RETURNS json
+    AS $$
+    DECLARE
+        result json;
+        bounds double precision[];
+    BEGIN
+        IF NOT ST_IsNurbsCurve($1) THEN
+            RETURN json_build_object('error', 'Input is not a NURBS curve');
+        END IF;
+
+        bounds := ST_NurbsCurveParameterBounds($1);
+
+        result := json_build_object(
+            'is_valid', ST_NurbsCurveIsValid($1),
+            'degree', ST_NurbsCurveDegree($1),
+            'num_control_points', ST_NurbsCurveNumControlPoints($1),
+            'is_rational', ST_NurbsCurveIsRational($1),
+            'parameter_bounds', bounds,
+            'has_custom_knots', (ST_NurbsCurveKnots($1) IS NOT NULL),
+            'dimension', ST_CoordDim($1)
+        );
+
+        RETURN result;
+    END
+    $$
+    LANGUAGE 'plpgsql' IMMUTABLE STRICT PARALLEL SAFE
+    COST 100;
+
+-----------------------------------------------------------------------
+-- DOCUMENTATION AND EXAMPLES
+-----------------------------------------------------------------------
+
+COMMENT ON FUNCTION ST_MakeNurbsCurve(integer, geometry) IS
+'Creates a NURBS curve from degree and control points.
+Example: ST_MakeNurbsCurve(2, ''LINESTRING(0 0, 5 10, 10 0)'')';
+
+COMMENT ON FUNCTION ST_NurbsCurveToLineString(geometry, integer) IS
+'Converts NURBS curve to linestring approximation with specified segment count.
+Higher segment count provides better accuracy but increases complexity.';
+
+COMMENT ON FUNCTION ST_NurbsCurveIsValid(geometry) IS
+'Validates NURBS curve mathematical consistency including:
+- Sufficient control points for degree
+- Positive weights (rational curves)
+- Non-decreasing knot vector
+- Correct knot vector length';
+
+COMMENT ON FUNCTION ST_InterpolateNurbsCurve(geometry, integer) IS
+'Creates NURBS curve passing through specified points using global interpolation.
+Uses chord-length parameterization and linear system solving.';
+
+-----------------------------------------------------------------------
+-- END OF NURBS FUNCTION DEFINITIONS
+-----------------------------------------------------------------------
