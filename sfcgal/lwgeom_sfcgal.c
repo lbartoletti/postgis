@@ -2054,7 +2054,7 @@ sfcgal_postgis_nurbs_curve_from_points(PG_FUNCTION_ARGS)
 			ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
 					errmsg("MULTIPOINT must contain at least one point")));
 		}
-		
+
 		/* Create a temporary point array from multipoint */
 		pa = ptarray_construct_empty(FLAGS_GET_Z(lwgeom->flags), FLAGS_GET_M(lwgeom->flags), mpoint->ngeoms);
 		for (i = 0; i < mpoint->ngeoms; i++)
@@ -2068,7 +2068,7 @@ sfcgal_postgis_nurbs_curve_from_points(PG_FUNCTION_ARGS)
 		}
 		npoints = pa->npoints;
 	}
-	
+
 	if (!pa || npoints < degree + 1)
 	{
 		if (lwgeom->type == MULTIPOINTTYPE && pa) ptarray_free(pa);
