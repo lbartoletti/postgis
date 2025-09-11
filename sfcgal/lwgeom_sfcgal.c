@@ -2007,6 +2007,8 @@ sfcgal_postgis_nurbs_curve_from_points(PG_FUNCTION_ARGS)
 	uint32_t i;
 	POINT4D pt;
 	srid_t srid;
+	POINTARRAY *pa;
+	uint32_t npoints;
 
 	sfcgal_postgis_init();
 
@@ -2027,17 +2029,49 @@ sfcgal_postgis_nurbs_curve_from_points(PG_FUNCTION_ARGS)
 
 	/* Extract control points */
 	lwgeom = lwgeom_from_gserialized(input);
-	if (!lwgeom || lwgeom->type != LINETYPE)
+	if (!lwgeom || (lwgeom->type != LINETYPE && lwgeom->type != MULTIPOINTTYPE))
 	{
 		if (lwgeom) lwgeom_free(lwgeom);
 		PG_FREE_IF_COPY(input, 0);
 		ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				errmsg("Control points must be a LINESTRING")));
+				errmsg("Control points must be a LINESTRING or MULTIPOINT")));
 	}
 
-	line = (LWLINE*)lwgeom;
-	if (!line->points || line->points->npoints < degree + 1)
+	/* Get point array based on geometry type */
+	if (lwgeom->type == LINETYPE)
 	{
+		line = (LWLINE*)lwgeom;
+		pa = line->points;
+		npoints = pa->npoints;
+	}
+	else /* MULTIPOINTTYPE */
+	{
+		LWMPOINT *mpoint = (LWMPOINT*)lwgeom;
+		if (!mpoint->ngeoms)
+		{
+			lwgeom_free(lwgeom);
+			PG_FREE_IF_COPY(input, 0);
+			ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					errmsg("MULTIPOINT must contain at least one point")));
+		}
+		
+		/* Create a temporary point array from multipoint */
+		pa = ptarray_construct_empty(FLAGS_GET_Z(lwgeom->flags), FLAGS_GET_M(lwgeom->flags), mpoint->ngeoms);
+		for (i = 0; i < mpoint->ngeoms; i++)
+		{
+			LWPOINT *pt_geom = mpoint->geoms[i];
+			if (pt_geom && pt_geom->point && pt_geom->point->npoints == 1)
+			{
+				getPoint4d_p(pt_geom->point, 0, &pt);
+				ptarray_append_point(pa, &pt, LW_TRUE);
+			}
+		}
+		npoints = pa->npoints;
+	}
+	
+	if (!pa || npoints < degree + 1)
+	{
+		if (lwgeom->type == MULTIPOINTTYPE && pa) ptarray_free(pa);
 		lwgeom_free(lwgeom);
 		PG_FREE_IF_COPY(input, 0);
 		ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
@@ -2046,16 +2080,16 @@ sfcgal_postgis_nurbs_curve_from_points(PG_FUNCTION_ARGS)
 	}
 
 	/* Convert to SFCGAL points */
-	points = (sfcgal_geometry_t**)palloc(sizeof(sfcgal_geometry_t*) * line->points->npoints);
+	points = (sfcgal_geometry_t**)palloc(sizeof(sfcgal_geometry_t*) * npoints);
 
-	for (i = 0; i < line->points->npoints; i++)
+	for (i = 0; i < npoints; i++)
 	{
-		getPoint4d_p(line->points, i, &pt);
-		if (FLAGS_GET_Z(line->flags) && FLAGS_GET_M(line->flags))
+		getPoint4d_p(pa, i, &pt);
+		if (FLAGS_GET_Z(lwgeom->flags) && FLAGS_GET_M(lwgeom->flags))
 			points[i] = sfcgal_point_create_from_xyzm(pt.x, pt.y, pt.z, pt.m);
-		else if (FLAGS_GET_Z(line->flags))
+		else if (FLAGS_GET_Z(lwgeom->flags))
 			points[i] = sfcgal_point_create_from_xyz(pt.x, pt.y, pt.z);
-		else if (FLAGS_GET_M(line->flags))
+		else if (FLAGS_GET_M(lwgeom->flags))
 			points[i] = sfcgal_point_create_from_xym(pt.x, pt.y, pt.m);
 		else
 			points[i] = sfcgal_point_create_from_xy(pt.x, pt.y);
@@ -2063,15 +2097,19 @@ sfcgal_postgis_nurbs_curve_from_points(PG_FUNCTION_ARGS)
 
 	/* Create NURBS curve using SFCGAL */
 	sfcgal_nurbs = sfcgal_nurbs_curve_create_from_points(
-		(const sfcgal_geometry_t**)points, line->points->npoints, degree,
+		(const sfcgal_geometry_t**)points, npoints, degree,
 		SFCGAL_KNOT_METHOD_UNIFORM);
 
 	/* Clean up SFCGAL points */
-	for (i = 0; i < line->points->npoints; i++)
+	for (i = 0; i < npoints; i++)
 	{
 		sfcgal_geometry_delete(points[i]);
 	}
 	pfree(points);
+
+	/* Clean up temporary point array for MULTIPOINT */
+	if (lwgeom->type == MULTIPOINTTYPE && pa)
+		ptarray_free(pa);
 
 	if (!sfcgal_nurbs)
 	{

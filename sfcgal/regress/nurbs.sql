@@ -6,7 +6,7 @@ SELECT 't1', ST_GeometryType(CG_NurbsCurveFromPoints(
 ));
 
 -- Test CG_NurbsCurveFromPoints - Create NURBS curve from control points (MultiPoint)
-SELECT 't1', ST_GeometryType(CG_NurbsCurveFromPoints(
+SELECT 't1mp', ST_GeometryType(CG_NurbsCurveFromPoints(
     'MULTIPOINT(0 0, 5 10, 10 0)'::geometry, 2
 ));
 
@@ -108,3 +108,69 @@ SELECT 't20', CG_NurbsCurveEvaluate(
     CG_NurbsCurveFromPoints('LINESTRING(0 0, 5 10, 10 0)'::geometry, 2),
     1.5
 );
+
+-- WKT NURBS Curve Tests - Test reading and manipulating NURBS curves from WKT format
+
+-- Test complex NURBS curve with degree 3
+SELECT 't21', ST_GeometryType(
+    'NURBSCURVE ((0.0 2.0,2.0 4.0,4.0 4.0,5.0 2.0,5.0 0.0,2.5 -3.0,0.0 -5.0,-2.5 -3.0,-5.0 0.0,-5.0 2.0,-4.0 4.0,-2.0 4.0,0.0 2.0),3)'::geometry
+);
+
+-- Test converting complex NURBS curve to LineString
+SELECT 't22', ST_GeometryType(CG_NurbsCurveToLineString(
+    'NURBSCURVE ((0.0 2.0,2.0 4.0,4.0 4.0,5.0 2.0,5.0 0.0,2.5 -3.0,0.0 -5.0,-2.5 -3.0,-5.0 0.0,-5.0 2.0,-4.0 4.0,-2.0 4.0,0.0 2.0),3)'::geometry,
+    16
+));
+
+-- Test simple NURBS curve degree 2
+SELECT 't23', ST_GeometryType(
+    'NURBSCURVE ((0.00 0.00,5.00 10.00,10.00 0.00),2)'::geometry
+);
+
+-- Test NURBS curve with weights
+SELECT 't24', ST_GeometryType(
+    'NURBSCURVE ((0.00 0.00,5.00 10.00,10.00 0.00),(1.00,2.00,1.00),2)'::geometry
+);
+
+-- Test NURBS curve degree 2 with 4 control points
+SELECT 't25', ST_GeometryType(
+    'NURBSCURVE ((0.00 0.00,3.00 6.00,6.00 3.00,9.00 0.00),2)'::geometry
+);
+
+-- Test 3D NURBS curve with weights
+SELECT 't26', ST_GeometryType(
+    'NURBSCURVE Z ((0.00 0.00 0.00,5.00 10.00 5.00,10.00 0.00 0.00),(1.00,2.00,1.00),2)'::geometry
+);
+
+-- Test quarter circle approximation using weighted NURBS
+SELECT 't27', ST_GeometryType(
+    'NURBSCURVE ((1.00 0.00,1.00 1.00,0.00 1.00),(1.00,0.71,1.00),2)'::geometry
+);
+
+-- Test higher degree NURBS curve (degree 3, multiple segments)
+SELECT 't28', ST_GeometryType(
+    'NURBSCURVE ((0.00 0.00,3.00 2.00,6.00 -2.00,9.00 0.00,12.00 2.00,15.00 -2.00,18.00 0.00),3)'::geometry
+);
+
+-- Test conversion of weighted NURBS to LineString
+SELECT 't29', ST_GeometryType(CG_NurbsCurveToLineString(
+    'NURBSCURVE ((0.00 0.00,5.00 10.00,10.00 0.00),(1.00,2.00,1.00),2)'::geometry,
+    10
+));
+
+-- Test evaluation of point on NURBS curve from WKT
+SELECT 't30', ST_GeometryType(CG_NurbsCurveEvaluate(
+    'NURBSCURVE ((0.00 0.00,5.00 10.00,10.00 0.00),2)'::geometry,
+    0.5
+));
+
+-- Test derivative computation on WKT NURBS curve
+SELECT 't31', ST_GeometryType(CG_NurbsCurveDerivative(
+    'NURBSCURVE ((0.00 0.00,3.00 6.00,6.00 3.00,9.00 0.00),2)'::geometry,
+    0.25, 1
+));
+
+-- Test 3D coordinate preservation
+SELECT 't32', (ST_CoordDim(
+    'NURBSCURVE Z ((0.00 0.00 0.00,5.00 10.00 5.00,10.00 0.00 0.00),(1.00,2.00,1.00),2)'::geometry
+) = 3) AS preserves_3d_coordinates;
