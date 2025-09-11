@@ -1853,150 +1853,19 @@ sfcgal_alphawrapping_3d(PG_FUNCTION_ARGS)
 
 /* NURBS curve support functions using native SFCGAL NURBS API */
 
-/* Helper function to convert PostGIS NURBS to SFCGAL NURBS */
-static sfcgal_geometry_t*
-postgis_nurbs_to_sfcgal_nurbs(LWNURBSCURVE *nurbs)
-{
-	sfcgal_geometry_t **points;
-	double *weights = NULL;
-	double *knots = NULL;
-	sfcgal_geometry_t *result;
-	uint32_t i;
-	POINT4D pt;
-
-	if (!nurbs || !nurbs->points || nurbs->points->npoints == 0)
-		return NULL;
-
-	/* Create array of SFCGAL points from control points */
-	points = (sfcgal_geometry_t**)palloc(sizeof(sfcgal_geometry_t*) * nurbs->points->npoints);
-
-	for (i = 0; i < nurbs->points->npoints; i++)
-	{
-		getPoint4d_p(nurbs->points, i, &pt);
-		if (FLAGS_GET_Z(nurbs->flags) && FLAGS_GET_M(nurbs->flags))
-			points[i] = sfcgal_point_create_from_xyzm(pt.x, pt.y, pt.z, pt.m);
-		else if (FLAGS_GET_Z(nurbs->flags))
-			points[i] = sfcgal_point_create_from_xyz(pt.x, pt.y, pt.z);
-		else if (FLAGS_GET_M(nurbs->flags))
-			points[i] = sfcgal_point_create_from_xym(pt.x, pt.y, pt.m);
-		else
-			points[i] = sfcgal_point_create_from_xy(pt.x, pt.y);
-	}
-
-	/* Handle weights if present */
-	if (nurbs->weights && nurbs->nweights > 0)
-	{
-		weights = nurbs->weights;
-	}
-
-	/* Handle knot vector if present */
-	if (nurbs->knots && nurbs->nknots > 0)
-	{
-		knots = nurbs->knots;
-		result = sfcgal_nurbs_curve_create_from_full_data(
-			(const sfcgal_geometry_t**)points, weights, nurbs->points->npoints,
-			nurbs->degree, knots, nurbs->nknots);
-	}
-	else if (weights)
-	{
-		result = sfcgal_nurbs_curve_create_from_points_and_weights(
-			(const sfcgal_geometry_t**)points, weights, nurbs->points->npoints,
-			nurbs->degree, SFCGAL_KNOT_METHOD_UNIFORM);
-	}
-	else
-	{
-		result = sfcgal_nurbs_curve_create_from_points(
-			(const sfcgal_geometry_t**)points, nurbs->points->npoints,
-			nurbs->degree, SFCGAL_KNOT_METHOD_UNIFORM);
-	}
-
-	/* Clean up temporary points */
-	for (i = 0; i < nurbs->points->npoints; i++)
-	{
-		sfcgal_geometry_delete(points[i]);
-	}
-	pfree(points);
-
-	return result;
-}
-
-/* Helper function to convert SFCGAL NURBS to PostGIS NURBS */
-static LWNURBSCURVE*
-sfcgal_nurbs_to_postgis_nurbs(const sfcgal_geometry_t* sfcgal_nurbs, int srid)
-{
-	size_t num_points, num_knots, i;
-	unsigned int degree;
-	POINTARRAY *pa;
-	double *weights = NULL;
-	double *knots = NULL;
-	LWNURBSCURVE *result;
-	const sfcgal_geometry_t *pt;
-	POINT4D point;
-	int has_z = 0, has_m = 0;
-
-	if (!sfcgal_nurbs)
-		return NULL;
-
-	num_points = sfcgal_nurbs_curve_num_control_points(sfcgal_nurbs);
-	degree = sfcgal_nurbs_curve_degree(sfcgal_nurbs);
-	num_knots = sfcgal_nurbs_curve_num_knots(sfcgal_nurbs);
-
-	/* Check if first point has Z or M coordinates */
-	if (num_points > 0)
-	{
-		pt = sfcgal_nurbs_curve_control_point_n(sfcgal_nurbs, 0);
-		/* Check dimensionality */
-		has_z = (sfcgal_geometry_dimension(pt) >= 3 || sfcgal_geometry_is_3d(pt));
-		has_m = 0; /* SFCGAL doesn't support M coordinates directly */
-	}
-
-	/* Create point array */
-	pa = ptarray_construct(has_z, has_m, num_points);
-
-	/* Extract control points */
-	for (i = 0; i < num_points; i++)
-	{
-		pt = sfcgal_nurbs_curve_control_point_n(sfcgal_nurbs, i);
-
-		point.x = sfcgal_point_x(pt);
-		point.y = sfcgal_point_y(pt);
-		if (has_z) point.z = sfcgal_point_z(pt);
-		if (has_m) point.m = sfcgal_point_m(pt);
-
-		ptarray_set_point4d(pa, i, &point);
-	}
-
-	/* Extract weights if rational */
-	if (sfcgal_nurbs_curve_is_rational(sfcgal_nurbs))
-	{
-		weights = (double*)palloc(sizeof(double) * num_points);
-		for (i = 0; i < num_points; i++)
-		{
-			weights[i] = sfcgal_nurbs_curve_weight_n(sfcgal_nurbs, i);
-		}
-	}
-
-	/* Extract knot vector */
-	if (num_knots > 0)
-	{
-		knots = (double*)palloc(sizeof(double) * num_knots);
-		for (i = 0; i < num_knots; i++)
-		{
-			knots[i] = sfcgal_nurbs_curve_knot_n(sfcgal_nurbs, i);
-		}
-	}
-
-	result = lwnurbscurve_construct(srid, degree, pa, weights, knots,
-		weights ? num_points : 0, num_knots);
-
-	return result;
-}
 
 /* CG_NurbsCurveFromPoints - Create NURBS curve from control points */
 PG_FUNCTION_INFO_V1(sfcgal_postgis_nurbs_curve_from_points);
 Datum
 sfcgal_postgis_nurbs_curve_from_points(PG_FUNCTION_ARGS)
 {
+#if POSTGIS_SFCGAL_VERSION < 20300
+	lwpgerror(
+		"The SFCGAL version this PostGIS binary was compiled against (%d) doesn't support "
+		"'sfcgal_nurbs_curve_from_points' function (requires SFCGAL 2.3.0+)",
+		POSTGIS_SFCGAL_VERSION);
+	PG_RETURN_NULL();
+#else /* POSTGIS_SFCGAL_VERSION >= 20300 */
 	GSERIALIZED *input, *output;
 	LWGEOM *lwgeom;
 	LWLINE *line;
@@ -2120,7 +1989,7 @@ sfcgal_postgis_nurbs_curve_from_points(PG_FUNCTION_ARGS)
 	}
 
 	/* Convert back to PostGIS NURBS */
-	result_nurbs = sfcgal_nurbs_to_postgis_nurbs(sfcgal_nurbs, srid);
+	result_nurbs = (LWNURBSCURVE*)SFCGAL2LWGEOM(sfcgal_nurbs, 0, srid);
 	sfcgal_geometry_delete(sfcgal_nurbs);
 
 	if (!result_nurbs)
@@ -2138,6 +2007,7 @@ sfcgal_postgis_nurbs_curve_from_points(PG_FUNCTION_ARGS)
 	PG_FREE_IF_COPY(input, 0);
 
 	PG_RETURN_POINTER(output);
+#endif
 }
 
 /* CG_NurbsCurveToLineString - Convert NURBS curve to LineString using SFCGAL */
@@ -2145,6 +2015,13 @@ PG_FUNCTION_INFO_V1(sfcgal_postgis_nurbs_curve_to_linestring);
 Datum
 sfcgal_postgis_nurbs_curve_to_linestring(PG_FUNCTION_ARGS)
 {
+#if POSTGIS_SFCGAL_VERSION < 20300
+	lwpgerror(
+		"The SFCGAL version this PostGIS binary was compiled against (%d) doesn't support "
+		"'sfcgal_nurbs_curve_to_linestring' function (requires SFCGAL 2.3.0+)",
+		POSTGIS_SFCGAL_VERSION);
+	PG_RETURN_NULL();
+#else /* POSTGIS_SFCGAL_VERSION >= 20300 */
 	GSERIALIZED *input, *output;
 	LWGEOM *lwgeom;
 	LWNURBSCURVE *nurbs;
@@ -2182,7 +2059,7 @@ sfcgal_postgis_nurbs_curve_to_linestring(PG_FUNCTION_ARGS)
 	nurbs = (LWNURBSCURVE*)lwgeom;
 
 	/* Convert PostGIS NURBS to SFCGAL NURBS */
-	sfcgal_nurbs = postgis_nurbs_to_sfcgal_nurbs(nurbs);
+	sfcgal_nurbs = LWGEOM2SFCGAL((LWGEOM*)nurbs);
 	if (!sfcgal_nurbs)
 	{
 		lwgeom_free(lwgeom);
@@ -2211,6 +2088,7 @@ sfcgal_postgis_nurbs_curve_to_linestring(PG_FUNCTION_ARGS)
 	PG_FREE_IF_COPY(input, 0);
 
 	PG_RETURN_POINTER(output);
+#endif
 }
 
 /* CG_NurbsCurveEvaluate - Evaluate NURBS curve at parameter using SFCGAL */
@@ -2218,6 +2096,13 @@ PG_FUNCTION_INFO_V1(sfcgal_postgis_nurbs_curve_evaluate);
 Datum
 sfcgal_postgis_nurbs_curve_evaluate(PG_FUNCTION_ARGS)
 {
+#if POSTGIS_SFCGAL_VERSION < 20300
+	lwpgerror(
+		"The SFCGAL version this PostGIS binary was compiled against (%d) doesn't support "
+		"'sfcgal_nurbs_curve_evaluate' function (requires SFCGAL 2.3.0+)",
+		POSTGIS_SFCGAL_VERSION);
+	PG_RETURN_NULL();
+#else /* POSTGIS_SFCGAL_VERSION >= 20300 */
 	GSERIALIZED *input, *output;
 	LWGEOM *lwgeom;
 	LWNURBSCURVE *nurbs;
@@ -2247,7 +2132,7 @@ sfcgal_postgis_nurbs_curve_evaluate(PG_FUNCTION_ARGS)
 	nurbs = (LWNURBSCURVE*)lwgeom;
 
 	/* Convert PostGIS NURBS to SFCGAL NURBS */
-	sfcgal_nurbs = postgis_nurbs_to_sfcgal_nurbs(nurbs);
+	sfcgal_nurbs = LWGEOM2SFCGAL((LWGEOM*)nurbs);
 	if (!sfcgal_nurbs)
 	{
 		lwgeom_free(lwgeom);
@@ -2276,6 +2161,7 @@ sfcgal_postgis_nurbs_curve_evaluate(PG_FUNCTION_ARGS)
 	PG_FREE_IF_COPY(input, 0);
 
 	PG_RETURN_POINTER(output);
+#endif
 }
 
 /* CG_NurbsCurveDerivative - Compute derivative of NURBS curve using SFCGAL */
@@ -2283,6 +2169,13 @@ PG_FUNCTION_INFO_V1(sfcgal_postgis_nurbs_curve_derivative);
 Datum
 sfcgal_postgis_nurbs_curve_derivative(PG_FUNCTION_ARGS)
 {
+#if POSTGIS_SFCGAL_VERSION < 20300
+	lwpgerror(
+		"The SFCGAL version this PostGIS binary was compiled against (%d) doesn't support "
+		"'sfcgal_nurbs_curve_derivative' function (requires SFCGAL 2.3.0+)",
+		POSTGIS_SFCGAL_VERSION);
+	PG_RETURN_NULL();
+#else /* POSTGIS_SFCGAL_VERSION >= 20300 */
 	GSERIALIZED *input, *output;
 	LWGEOM *lwgeom;
 	LWNURBSCURVE *nurbs;
@@ -2321,7 +2214,7 @@ sfcgal_postgis_nurbs_curve_derivative(PG_FUNCTION_ARGS)
 	nurbs = (LWNURBSCURVE*)lwgeom;
 
 	/* Convert PostGIS NURBS to SFCGAL NURBS */
-	sfcgal_nurbs = postgis_nurbs_to_sfcgal_nurbs(nurbs);
+	sfcgal_nurbs = LWGEOM2SFCGAL((LWGEOM*)nurbs);
 	if (!sfcgal_nurbs)
 	{
 		lwgeom_free(lwgeom);
@@ -2350,6 +2243,7 @@ sfcgal_postgis_nurbs_curve_derivative(PG_FUNCTION_ARGS)
 	PG_FREE_IF_COPY(input, 0);
 
 	PG_RETURN_POINTER(output);
+#endif
 }
 
 /* CG_NurbsCurveInterpolate - Create interpolating NURBS curve using SFCGAL */
@@ -2357,6 +2251,13 @@ PG_FUNCTION_INFO_V1(sfcgal_postgis_nurbs_curve_interpolate);
 Datum
 sfcgal_postgis_nurbs_curve_interpolate(PG_FUNCTION_ARGS)
 {
+#if POSTGIS_SFCGAL_VERSION < 20300
+	lwpgerror(
+		"The SFCGAL version this PostGIS binary was compiled against (%d) doesn't support "
+		"'sfcgal_nurbs_curve_interpolate' function (requires SFCGAL 2.3.0+)",
+		POSTGIS_SFCGAL_VERSION);
+	PG_RETURN_NULL();
+#else /* POSTGIS_SFCGAL_VERSION >= 20300 */
 	GSERIALIZED *input, *output;
 	LWGEOM *lwgeom;
 	LWLINE *line;
@@ -2442,7 +2343,7 @@ sfcgal_postgis_nurbs_curve_interpolate(PG_FUNCTION_ARGS)
 	}
 
 	/* Convert back to PostGIS NURBS */
-	result_nurbs = sfcgal_nurbs_to_postgis_nurbs(sfcgal_nurbs, srid);
+	result_nurbs = (LWNURBSCURVE*)SFCGAL2LWGEOM(sfcgal_nurbs, 0, srid);
 	sfcgal_geometry_delete(sfcgal_nurbs);
 
 	if (!result_nurbs)
@@ -2460,6 +2361,7 @@ sfcgal_postgis_nurbs_curve_interpolate(PG_FUNCTION_ARGS)
 	PG_FREE_IF_COPY(input, 0);
 
 	PG_RETURN_POINTER(output);
+#endif
 }
 
 
@@ -2468,6 +2370,13 @@ PG_FUNCTION_INFO_V1(sfcgal_postgis_nurbs_curve_approximate);
 Datum
 sfcgal_postgis_nurbs_curve_approximate(PG_FUNCTION_ARGS)
 {
+#if POSTGIS_SFCGAL_VERSION < 20300
+	lwpgerror(
+		"The SFCGAL version this PostGIS binary was compiled against (%d) doesn't support "
+		"'sfcgal_nurbs_curve_approximate' function (requires SFCGAL 2.3.0+)",
+		POSTGIS_SFCGAL_VERSION);
+	PG_RETURN_NULL();
+#else /* POSTGIS_SFCGAL_VERSION >= 20300 */
 	GSERIALIZED *input, *output;
 	LWGEOM *lwgeom;
 	LWLINE *line;
@@ -2556,7 +2465,7 @@ sfcgal_postgis_nurbs_curve_approximate(PG_FUNCTION_ARGS)
 	}
 
 	/* Convert result back to PostGIS */
-	result_nurbs = sfcgal_nurbs_to_postgis_nurbs(sfcgal_nurbs, srid);
+	result_nurbs = (LWNURBSCURVE*)SFCGAL2LWGEOM(sfcgal_nurbs, 0, srid);
 	sfcgal_geometry_delete(sfcgal_nurbs);
 
 	output = geometry_serialize(lwnurbscurve_as_lwgeom(result_nurbs));
@@ -2565,4 +2474,5 @@ sfcgal_postgis_nurbs_curve_approximate(PG_FUNCTION_ARGS)
 	PG_FREE_IF_COPY(input, 0);
 
 	PG_RETURN_POINTER(output);
+#endif
 }
