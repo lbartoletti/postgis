@@ -1,0 +1,21 @@
+t1|ST_NurbsCurve
+t1|ST_NurbsCurve
+t2|ST_NurbsCurve
+t3|ST_LineString
+t4|ST_LineString
+t5|ST_Point
+t6|ST_Point
+t7|ST_NurbsCurve
+t8|ST_NurbsCurve
+t9|ST_NurbsCurve
+t10|t
+t11|t
+t12|ST_NurbsCurve
+ERROR:  NURBS degree must be between 1 and 10
+ERROR:  Need at least 4 control points for degree 3 NURBS
+ERROR:  Control points must be a LINESTRING
+ERROR:  Number of segments must be between 2 and 10000
+t17|ST_Point
+t18|ST_Point
+t19|ST_NurbsCurve
+ERROR:  Parameter outside valid range
