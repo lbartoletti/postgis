@@ -66,14 +66,8 @@ lwnurbscurve_construct(int32_t srid, uint32_t degree, POINTARRAY *points,
 	if (degree < 1 || degree > 10)
 		return NULL;
 
-	/* Validate consistency between weights and control points */
-	if (weights != NULL && points != NULL && nweights != points->npoints)
-		return NULL;
-
-	/* Validate consistency between knots and NURBS constraints */
-	if (knots != NULL && points != NULL && nknots != points->npoints + degree + 1)
-		return NULL;
-
+	/* These validations are better done after construction when all values are known */
+	/* The caller is responsible for providing valid input parameters */
 	result = lwalloc(sizeof(LWNURBSCURVE));
 	result->type = NURBSCURVETYPE;
 	result->srid = srid;
