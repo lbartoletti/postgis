@@ -773,6 +773,7 @@ static size_t gserialized2_from_lwnurbscurve_size(const LWNURBSCURVE *curve)
 	size += 4; /* nweights */
 	size += 4; /* nknots */
 	size += 4; /* Number of control points (zero => empty). */
+	size += 4; /* padding to keep next doubles 8-byte aligned */
 
 	if (curve->weights && curve->nweights > 0)
 		size += sizeof(double) * curve->nweights;
