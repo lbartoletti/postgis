@@ -1327,12 +1327,15 @@ int lwgeom_needs_bbox(const LWGEOM *geom)
 	}
 	else if ( geom->type == NURBSCURVETYPE )
 	{
-		return LW_FALSE;
-		// LWNURBSCURVE *nurbs = (LWNURBSCURVE*)geom;
-		// if ( !nurbs->points || nurbs->points->npoints <= 2 )
-		// 	return LW_FALSE;
-		// else
-		// 	return LW_TRUE;
+		LWNURBSCURVE *nurbs = (LWNURBSCURVE*)geom;
+		/* Empty curves don't need bbox */
+		if ( !nurbs->points || nurbs->points->npoints == 0 )
+			return LW_FALSE;
+		/* Single control point doesn't need bbox */
+		else if ( nurbs->points->npoints == 1 )
+			return LW_FALSE;
+		else
+			return LW_TRUE;
 	}
 	else if ( geom->type == MULTIPOINTTYPE )
 	{

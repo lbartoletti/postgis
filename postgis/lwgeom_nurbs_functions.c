@@ -213,11 +213,6 @@ Datum ST_MakeNurbsCurve(PG_FUNCTION_ARGS)
 			errmsg("Failed to construct NURBS curve")));
 	}
 
-	/* Ensure dimensional consistency */
-	if (nurbs->points) {
-		nurbs->flags = nurbs->points->flags;
-	}
-
 	result = geometry_serialize((LWGEOM*)nurbs);
 
 	lwgeom_free(control_geom);
@@ -497,7 +492,6 @@ Datum ST_MakeNurbsCurveComplete(PG_FUNCTION_ARGS)
 
 	/* Create NURBS curve with specified parameters */
 	ctrl_pts = ptarray_clone_deep(line->points);
-	ctrl_pts = ptarray_clone_deep(line->points);
 	nurbs = lwnurbscurve_construct(control_geom->srid, degree, ctrl_pts,
 		weights, knots, weight_count, knot_count);
 
@@ -702,21 +696,20 @@ Datum ST_NurbsCurveKnots(PG_FUNCTION_ARGS)
 
 	nurbs = (LWNURBSCURVE*)geom;
 	if (!nurbs->knots) {
-		lwgeom_free(geom);
-		PG_RETURN_NULL();
+			lwgeom_free(geom);
+			PG_RETURN_NULL();
 	}
+  {
+	int count = (nurbs->nknots > 0)
+						? (int)nurbs->nknots
+						: (nurbs->points ? (int)(nurbs->degree + nurbs->points->npoints + 1) : 0);
+	if (count <= 0) {
+			lwgeom_free(geom);
+			PG_RETURN_NULL();
+	}
+	result = float8_array_from_double_array(nurbs->knots, count);
+  }
 
-nurbs = (LWNURBSCURVE*)geom;
-if (!nurbs->knots) {
-    lwgeom_free(geom);
-    PG_RETURN_NULL();
-}
-
-if (!nurbs->points) {
-    lwgeom_free(geom);
-    PG_RETURN_NULL();
-}
-result = float8_array_from_double_array(nurbs->knots, nurbs->degree + nurbs->points->npoints + 1);
 	lwgeom_free(geom);
 
 	if (!result) {

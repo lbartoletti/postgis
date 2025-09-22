@@ -1060,7 +1060,14 @@ LWGEOM* wkt_parser_nurbscurve_new(int degree, POINTARRAY *points, POINTARRAY *we
 		weight_array = lwalloc(sizeof(double) * nweights);
 		for (uint32_t i = 0; i < nweights; i++) {
 			POINT2D p;
-			getPoint2d_p(weights, i, &p);
+			if (!getPoint2d_p(weights, i, &p)) {
+				ptarray_free(points);
+				ptarray_free(weights);
+				if (knots) ptarray_free(knots);
+				lwfree(weight_array);
+				SET_PARSER_ERROR(PARSER_ERROR_OTHER);
+				return NULL;
+			}
 			weight_array[i] = p.x; /* Weight is stored in X coordinate */
 
 			if (weight_array[i] <= 0.0) {
@@ -1091,7 +1098,14 @@ LWGEOM* wkt_parser_nurbscurve_new(int degree, POINTARRAY *points, POINTARRAY *we
 		knot_array = lwalloc(sizeof(double) * nknots);
 		for (uint32_t i = 0; i < nknots; i++) {
 			POINT2D p;
-			getPoint2d_p(knots, i, &p);
+			if (!getPoint2d_p(knots, i, &p)) {
+				ptarray_free(points);
+				if (weight_array) lwfree(weight_array);
+				ptarray_free(knots);
+				lwfree(knot_array);
+				SET_PARSER_ERROR(PARSER_ERROR_OTHER);
+				return NULL;
+			}
 			knot_array[i] = p.x; /* Knot value is stored in X coordinate */
 		}
 

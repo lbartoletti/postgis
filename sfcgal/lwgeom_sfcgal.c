@@ -2624,7 +2624,7 @@ sfcgal_postgis_nurbs_curve_approximate(PG_FUNCTION_ARGS)
 	result_nurbs = (LWNURBSCURVE*)SFCGAL2LWGEOM(sfcgal_nurbs, 0, srid);
 	sfcgal_geometry_delete(sfcgal_nurbs);
 
-	output = geometry_serialize(lwnurbscurve_as_lwgeom(result_nurbs));
+	output = geometry_serialize((LWGEOM*)result_nurbs);
 	lwnurbscurve_free(result_nurbs);
 	lwgeom_free(lwgeom);
 	PG_FREE_IF_COPY(input, 0);

@@ -804,11 +804,18 @@ static LWNURBSCURVE* lwnurbscurve_from_wkb_state(wkb_parse_state *s)
          */
         for (uint32_t i = 0; i < npoints; i++) {
             /* Read byte order for this point (ISO requirement) */
-            byte_from_wkb_state(s);
+	    uint8_t point_endian = byte_from_wkb_state(s);
             if (s->error) {
                 lwfree(weights);
                 ptarray_free(points);
                 return NULL;
+            }
+            /* ISO allows different endianness per point, but we don't support it */
+            if (point_endian != (s->swap_bytes ? 0 : 1)) {
+               lwerror("WKB NURBSCURVE: inconsistent endianness in control points");
+               lwfree(weights);
+               ptarray_free(points);
+               return NULL;
             }
 
             /* Read point coordinates */

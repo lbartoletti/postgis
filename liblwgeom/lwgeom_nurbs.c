@@ -219,9 +219,24 @@ lwnurbscurve_generate_uniform_knots(uint32_t degree, uint32_t npoints, uint32_t 
 	double *knots;
 	uint32_t nknots, i;
 
+	/* Input validation to prevent underflow */
+	if (degree == 0 || npoints < degree + 1) {
+		*nknots_out = 0;
+		return NULL;
+	}
+
 	/* Standard NURBS constraint: knot vector size */
+	if (npoints < degree + 1) {
+		if (nknots_out) *nknots_out = 0;
+		return NULL;
+	}
 	nknots = npoints + degree + 1;
+
 	knots = lwalloc(sizeof(double) * nknots);
+	if (!knots) {
+		*nknots_out = 0;
+		return NULL;
+	}
 
 	/* Clamp start: first (degree+1) knots set to 0.0 */
 	for (i = 0; i <= degree; i++) {
