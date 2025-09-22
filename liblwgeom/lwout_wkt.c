@@ -707,7 +707,7 @@ static void lwnurbscurve_to_wkt_sb(const LWNURBSCURVE *curve, stringbuffer_t *sb
         stringbuffer_append_len(sb, ",(", 2);
         for (uint32_t i = 0; i < curve->nknots; i++) {
             if (i > 0) stringbuffer_append_len(sb, ",", 1);
-	    stringbuffer_append_double(sb, curve->weights[i], precision);
+	    stringbuffer_append_double(sb, curve->knots[i], precision);
         }
         stringbuffer_append_len(sb, ")", 1);
     }

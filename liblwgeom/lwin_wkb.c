@@ -330,6 +330,10 @@ static double double_from_wkb_state(wkb_parse_state *s)
 {
 	double d = 0;
 
+	/* Check bounds before reading */
+	wkb_parse_state_check(s, WKB_DOUBLE_SIZE);
+	if (s->error) return 0.0;
+
 	memcpy(&d, s->pos, WKB_DOUBLE_SIZE);
 
 	/* Swap? Copy into a stack-allocated integer. */
@@ -808,13 +812,19 @@ static LWNURBSCURVE* lwnurbscurve_from_wkb_state(wkb_parse_state *s)
                 ptarray_free(points);
                 return NULL;
             }
-            /* ISO allows different endianness per point, but we don't support it */
-            if (point_endian != (s->swap_bytes ? 0 : 1)) {
-               lwerror("WKB NURBSCURVE: inconsistent endianness in control points");
-               lwfree(weights);
-               ptarray_free(points);
-               return NULL;
-            }
+
+            /* Compute whether this point needs byte swapping */
+            int8_t point_swap = LW_FALSE;
+            /* Machine arch is big endian, point is little endian */
+            if (IS_BIG_ENDIAN && point_endian)
+                point_swap = LW_TRUE;
+            /* Machine arch is little endian, point is big endian */
+            else if ((!IS_BIG_ENDIAN) && (!point_endian))
+                point_swap = LW_TRUE;
+
+            /* Save original swap state and apply point-specific swapping */
+            int8_t original_swap = s->swap_bytes;
+            s->swap_bytes = point_swap;
 
             /* Read point coordinates */
             POINT4D pt = {0, 0, 0, 0};
@@ -884,6 +894,9 @@ static LWNURBSCURVE* lwnurbscurve_from_wkb_state(wkb_parse_state *s)
                 ptarray_free(points);
                 return NULL;
             }
+
+            /* Restore original swap state */
+            s->swap_bytes = original_swap;
         }
     } else {
         points = ptarray_construct_empty(s->has_z, s->has_m, 1);

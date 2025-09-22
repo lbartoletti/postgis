@@ -523,6 +523,10 @@ sfcgal_nurbs_to_lwgeom_nurbs(const sfcgal_geometry_t* sfcgal_nurbs, int srid)
 	result = lwnurbscurve_construct(srid, degree, pa, weights, knots,
 		weights ? num_points : 0, num_knots);
 
+	/* Free temporary buffers after constructor deep-copies them */
+	if (weights) lwfree(weights);
+	if (knots) lwfree(knots);
+
 	return result;
 }
 #endif /* POSTGIS_SFCGAL_VERSION >= 20300 */
