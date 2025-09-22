@@ -705,7 +705,17 @@ Datum ST_NurbsCurveKnots(PG_FUNCTION_ARGS)
 		PG_RETURN_NULL();
 	}
 
-	result = float8_array_from_double_array(nurbs->knots, nurbs->degree + nurbs->points->npoints + 1);
+nurbs = (LWNURBSCURVE*)geom;
+if (!nurbs->knots) {
+    lwgeom_free(geom);
+    PG_RETURN_NULL();
+}
+
+if (!nurbs->points) {
+    lwgeom_free(geom);
+    PG_RETURN_NULL();
+}
+result = float8_array_from_double_array(nurbs->knots, nurbs->degree + nurbs->points->npoints + 1);
 	lwgeom_free(geom);
 
 	if (!result) {
