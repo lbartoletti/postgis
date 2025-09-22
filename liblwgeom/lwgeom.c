@@ -1385,7 +1385,10 @@ uint32_t lwgeom_count_vertices(const LWGEOM *geom)
 		result = lwline_count_vertices((const LWLINE *)geom);
 		break;
 	case NURBSCURVETYPE:
-		result = ((const LWNURBSCURVE *)geom)->points->npoints;
+		{
+			const LWNURBSCURVE *nurbs = (const LWNURBSCURVE *)geom;
+			result = (nurbs->points != NULL) ? nurbs->points->npoints : 0;
+		}
 		break;
 	case POLYGONTYPE:
 		result = lwpoly_count_vertices((const LWPOLY *)geom);
@@ -2248,7 +2251,8 @@ lwgeom_scale(LWGEOM *geom, const POINT4D *factor)
 		case NURBSCURVETYPE:
 		{
 			LWNURBSCURVE *n = (LWNURBSCURVE*)geom;
-			ptarray_scale(n->points, factor);
+			if (n->points != NULL)
+				ptarray_scale(n->points, factor);
 			break;
 		}
 		case POLYGONTYPE:

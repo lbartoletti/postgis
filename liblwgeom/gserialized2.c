@@ -769,6 +769,28 @@ static size_t gserialized2_from_lwnurbscurve_size(const LWNURBSCURVE *curve)
 
 	assert(curve);
 
+	/* Validate nweights and nknots consistency with their pointers */
+	if (curve->nweights > 0 && curve->weights == NULL)
+	{
+		lwerror("NURBS curve has nweights > 0 but weights is NULL");
+		return 0;
+	}
+	if (curve->nknots > 0 && curve->knots == NULL)
+	{
+		lwerror("NURBS curve has nknots > 0 but knots is NULL");
+		return 0;
+	}
+	if (curve->weights != NULL && curve->nweights <= 0)
+	{
+		lwerror("NURBS curve has non-NULL weights but nweights <= 0");
+		return 0;
+	}
+	if (curve->knots != NULL && curve->nknots <= 0)
+	{
+		lwerror("NURBS curve has non-NULL knots but nknots <= 0");
+		return 0;
+	}
+
 	size += 4; /* degree */
 	size += 4; /* nweights */
 	size += 4; /* nknots */
@@ -1146,8 +1168,61 @@ static size_t gserialized2_from_lwnurbscurve(const LWNURBSCURVE *curve, uint8_t 
     if (curve->points && FLAGS_GET_ZM(curve->flags) != FLAGS_GET_ZM(curve->points->flags))
         lwerror("Dimensions mismatch in lwnurbscurve");
 
-    /* Calculate point size for coordinate data serialization */
-    ptsize = curve->points ? ptarray_point_size(curve->points) : 0;
+    /* Validate NURBS invariants before writing */
+    uint32_t npoints = curve->points ? curve->points->npoints : 0;
+
+    if (curve->nweights > 0)
+    {
+        if (curve->weights == NULL)
+        {
+            lwerror("NURBS curve has nweights > 0 but weights is NULL");
+            return 0;
+        }
+        if (curve->nweights != npoints)
+        {
+            lwerror("NURBS curve weights count (%d) does not match control points count (%d)", curve->nweights, npoints);
+            return 0;
+        }
+    }
+
+    if (curve->nknots > 0)
+    {
+        if (curve->knots == NULL)
+        {
+            lwerror("NURBS curve has nknots > 0 but knots is NULL");
+            return 0;
+        }
+        if (curve->nknots != (npoints + curve->degree + 1))
+        {
+            lwerror("NURBS curve knots count (%d) does not match expected count (%d = npoints + degree + 1)", curve->nknots, npoints + curve->degree + 1);
+            return 0;
+        }
+    }
+
+    if (npoints > 0)
+    {
+        if (curve->points == NULL)
+        {
+            lwerror("NURBS curve has npoints > 0 but points is NULL");
+            return 0;
+        }
+        ptsize = ptarray_point_size(curve->points);
+        if (ptsize <= 0)
+        {
+            lwerror("NURBS curve has invalid point size");
+            return 0;
+        }
+        if (FLAGS_GET_ZM(curve->flags) != FLAGS_GET_ZM(curve->points->flags))
+        {
+            lwerror("NURBS curve flags mismatch between curve and points");
+            return 0;
+        }
+    }
+    else
+    {
+        ptsize = 0;
+    }
+
     loc = buf;
 
     /*
@@ -1170,7 +1245,6 @@ static size_t gserialized2_from_lwnurbscurve(const LWNURBSCURVE *curve, uint8_t 
      * - POLYGON: number of rings at position 4-7
      * - POINT: coordinate presence indicator at position 4-7
      */
-    uint32_t npoints = curve->points ? curve->points->npoints : 0;
     memcpy(loc, &npoints, sizeof(uint32_t));
     loc += sizeof(uint32_t);
 

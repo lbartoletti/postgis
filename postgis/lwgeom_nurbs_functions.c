@@ -208,6 +208,7 @@ Datum ST_MakeNurbsCurve(PG_FUNCTION_ARGS)
 		NULL, NULL, 0, 0);
 
 	if (!nurbs) {
+		ptarray_free(ctrl_pts);
 		lwgeom_free(control_geom);
 		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR),
 			errmsg("Failed to construct NURBS curve")));
@@ -323,6 +324,7 @@ Datum ST_MakeNurbsCurveWithWeights(PG_FUNCTION_ARGS)
 		weights, NULL, weight_count, 0);
 
 	if (!nurbs) {
+		ptarray_free(ctrl_pts);
 		pfree(weights);
 		lwgeom_free(control_geom);
 		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR),
@@ -495,6 +497,7 @@ Datum ST_MakeNurbsCurveComplete(PG_FUNCTION_ARGS)
 		weights, knots, weight_count, knot_count);
 
 	if (!nurbs) {
+		ptarray_free(ctrl_pts);
 		if (weights) pfree(weights);
 		if (knots) pfree(knots);
 		lwgeom_free(control_geom);
@@ -694,20 +697,18 @@ Datum ST_NurbsCurveKnots(PG_FUNCTION_ARGS)
 	}
 
 	nurbs = (LWNURBSCURVE*)geom;
-	if (!nurbs->knots) {
-			lwgeom_free(geom);
-			PG_RETURN_NULL();
+	if (!nurbs->knots || nurbs->nknots == 0) {
+		lwgeom_free(geom);
+		PG_RETURN_NULL();
 	}
-  {
-	int count = (nurbs->nknots > 0)
-						? (int)nurbs->nknots
-						: (nurbs->points ? (int)(nurbs->degree + nurbs->points->npoints + 1) : 0);
-	if (count <= 0) {
-			lwgeom_free(geom);
-			PG_RETURN_NULL();
+
+	/* Use only the actual knot count, no inference */
+	if (nurbs->nknots <= 0) {
+		lwgeom_free(geom);
+		PG_RETURN_NULL();
 	}
-	result = float8_array_from_double_array(nurbs->knots, count);
-  }
+
+	result = float8_array_from_double_array(nurbs->knots, (int)nurbs->nknots);
 
 	lwgeom_free(geom);
 
@@ -819,6 +820,7 @@ Datum ST_NurbsCurveIsValid(PG_FUNCTION_ARGS)
 	LWNURBSCURVE *nurbs;
 	bool is_valid = true;
 	int i, expected_knots;
+	int actual_check_count = 0;
 
 	if (PG_ARGISNULL(0)) {
 		PG_RETURN_NULL();
@@ -841,8 +843,13 @@ Datum ST_NurbsCurveIsValid(PG_FUNCTION_ARGS)
 	}
 
 	/* Check weights if present */
-	if (nurbs->weights) {
-		for (i = 0; i < (int)nurbs->points->npoints; i++) {
+	if (nurbs->weights && nurbs->nweights > 0) {
+		/* Verify nweights matches npoints before looping */
+		if (nurbs->nweights < (int)nurbs->points->npoints) {
+			is_valid = false;
+			goto cleanup;
+		}
+		for (i = 0; i < nurbs->nweights && i < (int)nurbs->points->npoints; i++) {
 			if (nurbs->weights[i] <= 0.0) {
 				is_valid = false;
 				goto cleanup;
@@ -851,12 +858,18 @@ Datum ST_NurbsCurveIsValid(PG_FUNCTION_ARGS)
 	}
 
 	/* Check knot vector if present */
-	if (nurbs->knots) {
+	if (nurbs->knots && nurbs->nknots > 0) {
 		expected_knots = nurbs->points->npoints + nurbs->degree + 1;
-		/* Note: we can't easily verify knot count here without additional metadata */
 
-		/* Check knot vector is non-decreasing - we'll check what we can */
-		for (i = 1; i < expected_knots; i++) {
+		/* Verify nknots is consistent before checking values */
+		if (nurbs->nknots < expected_knots) {
+			is_valid = false;
+			goto cleanup;
+		}
+
+		/* Check knot vector is non-decreasing using actual count */
+		actual_check_count = (nurbs->nknots < expected_knots) ? nurbs->nknots : expected_knots;
+		for (i = 1; i < actual_check_count; i++) {
 			if (nurbs->knots[i] < nurbs->knots[i-1]) {
 				is_valid = false;
 				goto cleanup;
