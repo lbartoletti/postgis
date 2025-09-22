@@ -1809,6 +1809,18 @@ sfcgal_simplify(PG_FUNCTION_ARGS)
 }
 
 PG_FUNCTION_INFO_V1(sfcgal_alphawrapping_3d);
+/**
+ * Compute a 3D alpha-wrapping (alpha shape) of the input geometry and return it as a 3D PostGIS geometry.
+ *
+ * If the input is empty, returns an empty polyhedral surface. The function preserves the input SRID and
+ * always returns a forced-3D GSERIALIZED geometry. Requires SFCGAL >= 2.1.0 (PostGIS SFCGAL version 20100+);
+ * when compiled against an older SFCGAL the function returns NULL.
+ *
+ * @param input GSERIALIZED* input geometry to wrap.
+ * @param relative_alpha Integer controlling the alpha parameter relative to the input scale (higher values produce coarser wraps).
+ * @param relative_offset Integer offset applied when computing the alpha parameter.
+ * @return Datum pointer to a GSERIALIZED 3D geometry containing the alpha-wrapped result (caller receives a PostgreSQL Datum).
+ */
 Datum
 sfcgal_alphawrapping_3d(PG_FUNCTION_ARGS)
 {
@@ -1856,6 +1868,32 @@ sfcgal_alphawrapping_3d(PG_FUNCTION_ARGS)
 
 /* CG_NurbsCurveFromPoints - Create NURBS curve from control points */
 PG_FUNCTION_INFO_V1(sfcgal_postgis_nurbs_curve_from_points);
+/**
+ * Create a PostGIS NURBS curve from a sequence of control points.
+ *
+ * Takes a serialized PostGIS geometry of control points (LINESTRING or MULTIPOINT)
+ * and an integer degree, constructs a NURBS curve using SFCGAL, and returns the
+ * resulting PostGIS NURBS geometry (GSERIALIZED) preserving the input SRID.
+ *
+ * Detailed behavior:
+ * - The first argument must be a GSERIALIZED LINESTRING or MULTIPOINT containing
+ *   the control points. For MULTIPOINT, each member must contain a single point.
+ * - The second argument is the NURBS degree and must be between 1 and 10
+ *   (inclusive). At least degree+1 control points are required.
+ * - Point dimensionality (XY, XYZ, XYM, XYZM) is preserved when creating SFCGAL
+ *   points from the input coordinates.
+ * - Requires SFCGAL NURBS support (compiled with SFCGAL 2.3.0+); if unavailable,
+ *   the function returns NULL at runtime in the compiled binary path guarded by
+ *   the build-time version check.
+ *
+ * Errors:
+ * - Raises ERROR for invalid parameter values (invalid degree, wrong geometry
+ *   type, empty MULTIPOINT, insufficient control points) and for internal
+ *   failures during NURBS creation or conversion back to PostGIS.
+ *
+ * Return:
+ * - GSERIALIZED pointer to the created NURBS curve on success.
+ */
 Datum
 sfcgal_postgis_nurbs_curve_from_points(PG_FUNCTION_ARGS)
 {
@@ -2012,6 +2050,27 @@ sfcgal_postgis_nurbs_curve_from_points(PG_FUNCTION_ARGS)
 
 /* CG_NurbsCurveToLineString - Convert NURBS curve to LineString using SFCGAL */
 PG_FUNCTION_INFO_V1(sfcgal_postgis_nurbs_curve_to_linestring);
+/**
+ * Tessellate a PostGIS NURBS curve into a LineString.
+ *
+ * Converts an input NURBS geometry (GSERIALIZED) to an SFCGAL NURBS, tessellates it
+ * into a LineString with the requested number of segments, and returns the result
+ * as a GSERIALIZED LineString preserving the input SRID.
+ *
+ * Parameters:
+ * - input (arg 0): a non-NULL GSERIALIZED representing a NURBS curve (LINE type must be NURBSCURVETYPE).
+ * - segments (arg 1, optional): number of segments to use for tessellation (default 32).
+ *   Must be between 2 and 10000.
+ *
+ * Returns:
+ * - A newly-allocated GSERIALIZED LineString containing the tessellated curve (caller receives a PostgreSQL pointer Datum).
+ *
+ * Errors (ereport(ERROR)):
+ * - If SFCGAL NURBS support is unavailable (requires SFCGAL 2.3.0+), the function returns NULL at compile-time and reports an error.
+ * - If the input is NULL, returns NULL.
+ * - If segments is out of bounds (not in [2,10000]), raises ERRCODE_INVALID_PARAMETER_VALUE.
+ * - If the input is not a NURBS curve or conversion between PostGIS and SFCGAL formats fails, raises an appropriate error (ERRCODE_INVALID_PARAMETER_VALUE or ERRCODE_INTERNAL_ERROR).
+ */
 Datum
 sfcgal_postgis_nurbs_curve_to_linestring(PG_FUNCTION_ARGS)
 {
@@ -2093,6 +2152,22 @@ sfcgal_postgis_nurbs_curve_to_linestring(PG_FUNCTION_ARGS)
 
 /* CG_NurbsCurveEvaluate - Evaluate NURBS curve at parameter using SFCGAL */
 PG_FUNCTION_INFO_V1(sfcgal_postgis_nurbs_curve_evaluate);
+/**
+ * Evaluate a NURBS curve at a given parameter and return the resulting point.
+ *
+ * Converts a PostGIS NURBS curve to SFCGAL format, evaluates it at the provided
+ * parameter value, and returns the evaluated point as a GSERIALIZED PostGIS
+ * geometry preserving the input SRID.
+ *
+ * Requires SFCGAL 2.3.0+; if the build-time SFCGAL version is older, the function
+ * returns NULL. Errors if the input is not a NURBS curve or if conversion/
+ * evaluation fails.
+ *
+ * @param 0 GSERIALIZED* GSERIALIZED representation of a PostGIS NURBS curve.
+ * @param 1 float8 Parameter value at which to evaluate the NURBS curve.
+ * @return GSERIALIZED* GSERIALIZED Point geometry representing the evaluated
+ *         location (preserves input SRID).
+ */
 Datum
 sfcgal_postgis_nurbs_curve_evaluate(PG_FUNCTION_ARGS)
 {
@@ -2166,6 +2241,25 @@ sfcgal_postgis_nurbs_curve_evaluate(PG_FUNCTION_ARGS)
 
 /* CG_NurbsCurveDerivative - Compute derivative of NURBS curve using SFCGAL */
 PG_FUNCTION_INFO_V1(sfcgal_postgis_nurbs_curve_derivative);
+/**
+ * Compute the derivative of a NURBS curve at a given parameter.
+ *
+ * Accepts a PostGIS NURBS curve, a parameter value (double), and a derivative order (int).
+ * Returns a Point geometry (GSERIALIZED) representing the derivative vector at the parameter;
+ * the result preserves the input SRID. Requires SFCGAL >= 2.3.0.
+ *
+ * Parameters:
+ * - arg0: a NURBS curve geometry (LINE or NURBS curve LWGEOM); must be a NURBS curve.
+ * - arg1: parameter value along the curve (double).
+ * - arg2: derivative order (1–3).
+ *
+ * Errors:
+ * - Throws ERROR if the input is not a NURBS curve.
+ * - Throws ERROR if derivative order is outside the range 1..3.
+ * - Throws ERROR on internal conversion or computation failures.
+ *
+ * If the build-time SFCGAL version is older than 2.3.0, the function returns NULL.
+ */
 Datum
 sfcgal_postgis_nurbs_curve_derivative(PG_FUNCTION_ARGS)
 {
@@ -2248,6 +2342,32 @@ sfcgal_postgis_nurbs_curve_derivative(PG_FUNCTION_ARGS)
 
 /* CG_NurbsCurveInterpolate - Create interpolating NURBS curve using SFCGAL */
 PG_FUNCTION_INFO_V1(sfcgal_postgis_nurbs_curve_interpolate);
+/**
+ * Create an interpolating NURBS curve from an input linestring of data points.
+ *
+ * Given a LINESTRING of data points and an integer degree, constructs an
+ * interpolating NURBS curve using SFCGAL and returns it as a PostGIS
+ * serialized geometry (GSERIALIZED). The function preserves the input SRID.
+ *
+ * Requirements and behavior:
+ * - Requires SFCGAL 2.3.0+; if compiled against an older SFCGAL the function
+ *   returns NULL.
+ * - The input geometry must be a LINESTRING. Null inputs return NULL.
+ * - The degree must be between 1 and 10 (inclusive).
+ * - The LINESTRING must contain at least (degree + 1) points.
+ * - Supports 2D, 2.5D (Z), measure (M) and 3D (XYZM) point coordinates and converts
+ *   points to the appropriate SFCGAL point type before interpolation.
+ *
+ * @param input_linestring A LINESTRING of data points to interpolate (first
+ *        function argument). Must not be NULL for execution.
+ * @param degree Degree of the NURBS curve (second function argument); integer
+ *        in range [1, 10].
+ * @return A pointer to a GSERIALIZED representing the resulting PostGIS NURBS
+ *         curve (must be freed by caller as per PostGIS memory conventions).
+ * @throws ERROR if input is not a LINESTRING, if degree is out of range, if
+ *         there are insufficient data points, or if SFCGAL fails to create or
+ *         convert the NURBS curve.
+ */
 Datum
 sfcgal_postgis_nurbs_curve_interpolate(PG_FUNCTION_ARGS)
 {
@@ -2367,6 +2487,30 @@ sfcgal_postgis_nurbs_curve_interpolate(PG_FUNCTION_ARGS)
 
 /* CG_NurbsCurveApproximate - Create approximating NURBS curve using SFCGAL */
 PG_FUNCTION_INFO_V1(sfcgal_postgis_nurbs_curve_approximate);
+/**
+ * Approximate a NURBS curve from input data points.
+ *
+ * Builds an approximating NURBS curve from a LINESTRING of data points using SFCGAL's
+ * approximation routine and returns the result as a PostGIS `GSERIALIZED` NURBS geometry.
+ *
+ * Parameters:
+ * @param input LINESTRING of data points (GSERIALIZED). Points may be 2D, 2D+M, 3D, or 3D+M.
+ * @param degree Desired NURBS degree (integer). Must be between 1 and 10.
+ * @param tolerance Approximation tolerance (double).
+ * @param max_control_points Optional maximum number of control points (integer, default 100).
+ *
+ * Returns:
+ * @return A newly allocated `GSERIALIZED *` containing the approximating NURBS curve.
+ *
+ * Error conditions:
+ * - Raises an ERROR if `degree` is out of range (1..10).
+ * - Raises an ERROR if `input` is not a LINESTRING or does not contain at least `degree + 1` points.
+ * - Raises an ERROR if SFCGAL fails to produce an approximating NURBS curve.
+ *
+ * Notes:
+ * - Requires SFCGAL >= 2.3.0; if compiled against an older SFCGAL, the function returns NULL.
+ * - The returned GSERIALIZED preserves the input SRID.
+ */
 Datum
 sfcgal_postgis_nurbs_curve_approximate(PG_FUNCTION_ARGS)
 {

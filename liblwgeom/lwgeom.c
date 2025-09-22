@@ -523,8 +523,18 @@ lwgeom_clone(const LWGEOM *lwgeom)
 }
 
 /**
-* Deep-clone an #LWGEOM object. #POINTARRAY <em>are</em> copied.
-*/
+ * Create a deep copy of an LWGEOM.
+ *
+ * Performs a full (deep) clone of the provided geometry, including copying
+ * internal vertex/point arrays so the returned geometry is independent of the
+ * original. Dispatches to type-specific deep-clone helpers (e.g. line, polygon,
+ * collection, NURBS curve).
+ *
+ * @param lwgeom Source geometry to clone. Must be non-NULL.
+ * @returns Pointer to a newly allocated LWGEOM that is a deep clone of
+ *          `lwgeom`, or NULL if `lwgeom->type` is unrecognized (an error is
+ *          reported in that case).
+ */
 LWGEOM *
 lwgeom_clone_deep(const LWGEOM *lwgeom)
 {
@@ -1217,6 +1227,16 @@ lwtype_get_collectiontype(uint8_t type)
 }
 
 
+/**
+ * Free an LWGEOM and its associated resources.
+ *
+ * Dispatches to the appropriate type-specific free function based on lwgeom->type.
+ * If `lwgeom` is NULL the function is a no-op. Logs an error if the geometry type
+ * is unknown.
+ *
+ * @param lwgeom Pointer to the LWGEOM to free (may be NULL). After return the
+ *               memory for the provided geometry will have been released.
+ */
 void lwgeom_free(LWGEOM *lwgeom)
 {
 
@@ -1273,6 +1293,24 @@ void lwgeom_free(LWGEOM *lwgeom)
 	return;
 }
 
+/**
+ * Determine whether a geometry requires a bounding box.
+ *
+ * Returns LW_TRUE if callers should attach/maintain a bounding box for the
+ * provided geometry type and state, or LW_FALSE when a bbox is unnecessary
+ * (e.g., point-like or trivially short line geometries).
+ *
+ * Detailed behavior:
+ * - POINTTYPE: returns LW_FALSE.
+ * - LINETYPE: returns LW_FALSE for lines with 0–2 vertices, otherwise LW_TRUE.
+ * - NURBSCURVETYPE: currently treated as not requiring a bbox (LW_FALSE).
+ * - MULTIPOINTTYPE: returns LW_FALSE for a single-member collection, otherwise LW_TRUE.
+ * - MULTILINETYPE: returns LW_FALSE when the collection has one member and that member has ≤2 vertices, otherwise LW_TRUE.
+ * - All other types: returns LW_TRUE.
+ *
+ * @param geom Geometry to inspect (must not be NULL).
+ * @return LW_TRUE if a bbox is needed, LW_FALSE otherwise.
+ */
 int lwgeom_needs_bbox(const LWGEOM *geom)
 {
 	assert(geom);
@@ -1368,10 +1406,19 @@ uint32_t lwgeom_count_vertices(const LWGEOM *geom)
 }
 
 /**
-* For an #LWGEOM, returns 0 for points, 1 for lines,
-* 2 for polygons, 3 for volume, and the max dimension
-* of a collection.
-*/
+ * Return the topological dimension of a geometry.
+ *
+ * Determines the topological dimension for the given LWGEOM:
+ * - 0 for point-like geometries,
+ * - 1 for curve-like geometries (lines, circular strings, compound/curve collections, NURBS),
+ * - 2 for surface-like geometries (polygons, triangles, surfaces, TIN),
+ * - 3 for a closed polyhedral surface (volume).
+ * For a COLLECTION, returns the maximum dimension among its members.
+ *
+ * @param geom Pointer to the geometry; may be NULL.
+ * @return 0..3 for the geometry's topological dimension, the maximum member dimension for collections,
+ *         -1 if geom is NULL or its type is unsupported.
+ */
 int lwgeom_dimension(const LWGEOM *geom)
 {
 
@@ -1501,6 +1548,19 @@ static int lwcollection_dimensionality(const LWCOLLECTION *col)
 	return dimensionality;
 }
 
+/**
+ * Determine the topological dimensionality of a geometry.
+ *
+ * Returns the maximal topological dimension for the input geometry:
+ * - 0 for points and multipoints,
+ * - 1 for linear/curve types (lines, circular strings, compound/multi-curves, NURBS),
+ * - 2 for polygonal/surface types,
+ * - 3 for polyhedral surfaces or TINs that are closed (otherwise 2).
+ * For COLLECTIONTYPE the result is the maximum dimensionality of its members.
+ *
+ * @param geom Geometry to inspect (must be non-NULL).
+ * @return The topological dimension (0..3). On unsupported types the function logs an error and returns 0.
+ */
 extern int lwgeom_dimensionality(const LWGEOM *geom)
 {
 	int dim;
@@ -2149,6 +2209,18 @@ lwgeom_affine(LWGEOM *geom, const AFFINE *affine)
 		lwgeom_refresh_bbox(geom);
 }
 
+/**
+ * Scale a geometry in-place by per-ordinate factors.
+ *
+ * Applies the provided scale factors to all coordinates of the given geometry.
+ * Scaling is applied component-wise: X by factor->x, Y by factor->y, Z by factor->z
+ * and M by factor->m when those ordinates are present. The operation mutates
+ * the input geometry and recurses into collections and curve/polygon components.
+ * If the geometry has an attached bounding box it is refreshed after scaling.
+ *
+ * @param geom Geometry to be scaled (modified in place). Behavior is undefined if NULL.
+ * @param factor Per-ordinate scale factors (X, Y, Z, M).
+ */
 void
 lwgeom_scale(LWGEOM *geom, const POINT4D *factor)
 {
@@ -2204,6 +2276,27 @@ lwgeom_scale(LWGEOM *geom, const POINT4D *factor)
 		lwgeom_refresh_bbox(geom);
 }
 
+/**
+ * Construct an empty LWGEOM of the requested geometry type.
+ *
+ * Creates and returns a newly allocated geometry instance with no coordinates
+ * (an "empty" geometry), using the provided SRID and dimensionality flags.
+ * For homogeneous collection types (MULTI*/COLLECTION/COMPOUND) the `type`
+ * argument selects the specific collection subtype to construct.
+ *
+ * @param type Geometry type code (e.g., POINTTYPE, LINETYPE, POLYGONTYPE,
+ *             CURVEPOLYTYPE, CIRCSTRINGTYPE, TRIANGLETYPE, COMPOUNDTYPE,
+ *             MULTIPOINTTYPE, MULTILINETYPE, MULTIPOLYGONTYPE, COLLECTIONTYPE,
+ *             NURBSCURVETYPE). Unsupported types cause an error to be logged
+ *             and the function to return NULL.
+ * @param srid Spatial reference identifier to assign to the constructed geometry
+ *             (use SRID_UNKNOWN if not set).
+ * @param hasz Non-zero to include a Z ordinate in the geometry; zero to omit Z.
+ * @param hasm Non-zero to include an M ordinate in the geometry; zero to omit M.
+ *
+ * @return Pointer to the newly constructed LWGEOM, or NULL if `type` is not
+ *         supported.
+ */
 LWGEOM *
 lwgeom_construct_empty(uint8_t type, int32_t srid, char hasz, char hasm)
 {

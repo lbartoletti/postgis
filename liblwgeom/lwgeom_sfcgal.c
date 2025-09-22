@@ -64,10 +64,16 @@ lwgeom_sfcgal_full_version()
 	return version;
 }
 
-/*
- * Mapping between SFCGAL and PostGIS types
+/**
+ * Map an SFCGAL geometry type to the corresponding PostGIS lwgeom type constant.
  *
- * Throw an error if type is unsupported
+ * Returns the lwgeom type constant (e.g., POINTTYPE, LINETYPE, POLYGONTYPE, etc.)
+ * for a supported SFCGAL type. For SFCGAL types that have no direct PostGIS
+ * counterpart the function returns COLLECTIONTYPE where appropriate (e.g.,
+ * MULTISOLID) or maps specialized surface/triangle types to their PostGIS
+ * equivalents (POLYHEDRALSURFACETYPE, TINTYPE, TRIANGLETYPE). If the input
+ * type is not recognized the function reports an error via lwerror and
+ * returns 0.
  */
 static int
 SFCGAL_type_to_lwgeom_type(sfcgal_geometry_type_t type)
@@ -264,7 +270,30 @@ create_sfcgal_point_by_dimensions(double x, double y, double z, double m, int is
 }
 
 /**
- * Convert a PostGIS pointarray to SFCGAL structure
+ * Convert a PostGIS POINTARRAY into a new SFCGAL geometry of the requested type.
+ *
+ * The function inspects POINTARRAY flags to determine dimensionality (Z and M)
+ * and creates one of:
+ *  - POINTTYPE: a SFCGAL point created from the first point in `pa`.
+ *  - LINETYPE: a SFCGAL linestring with one vertex per point in `pa`.
+ *  - TRIANGLETYPE: a SFCGAL triangle using the first three points in `pa`.
+ *
+ * Requirements and behavior:
+ *  - `pa` must be non-NULL.
+ *  - For TRIANGLETYPE, `pa->npoints` should be >= 3 (first three points are used).
+ *  - For POINTTYPE the first point (index 0) is used.
+ *  - Dimensionality (2D/3D and measured) is taken from pa->flags and applied to created points.
+ *
+ * Parameters:
+ *  - pa: source POINTARRAY to convert.
+ *  - type: desired target geometry type (POINTTYPE, LINETYPE, or TRIANGLETYPE).
+ *
+ * Returns:
+ *  - A newly allocated sfcgal_geometry_t* representing the converted geometry on success.
+ *  - NULL if `type` is unsupported or on error.
+ *
+ * Ownership:
+ *  - Caller is responsible for freeing the returned geometry (e.g., with sfcgal_geometry_delete).
  */
 static sfcgal_geometry_t *
 ptarray_to_SFCGAL(const POINTARRAY *pa, int type)
@@ -320,7 +349,23 @@ ptarray_to_SFCGAL(const POINTARRAY *pa, int type)
 }
 
 #if POSTGIS_SFCGAL_VERSION >= 20300
-/* Helper function to convert PostGIS NURBS to SFCGAL NURBS */
+/**
+ * Convert a PostGIS LWNURBSCURVE to an SFCGAL NURBS geometry.
+ *
+ * Builds an SFCGAL NURBS curve from the control points stored in `nurbs`.
+ * Dimensionality (XY, XYZ, XYM, XYZM) is inferred from `nurbs->flags`. If
+ * `nurbs->knots` is present it is used as the knot vector; otherwise the
+ * function selects a uniform knot method. If `nurbs->weights` is present the
+ * curve is created as rational. Temporary SFCGAL point objects are allocated
+ * during construction and freed before returning.
+ *
+ * @param nurbs PostGIS NURBS curve to convert. Must be non-NULL and contain at
+ *              least one control point.
+ * @returns A newly created `sfcgal_geometry_t *` representing the NURBS curve,
+ *          or NULL if `nurbs` is NULL, has no control points, or conversion
+ *          fails. The caller is responsible for deleting the returned geometry
+ *          with `sfcgal_geometry_delete`.
+ */
 static sfcgal_geometry_t*
 lwgeom_nurbs_to_sfcgal_nurbs(const LWNURBSCURVE *nurbs)
 {
@@ -387,7 +432,22 @@ lwgeom_nurbs_to_sfcgal_nurbs(const LWNURBSCURVE *nurbs)
 	return result;
 }
 
-/* Helper function to convert SFCGAL NURBS to PostGIS NURBS */
+/**
+ * Convert an SFCGAL NURBS geometry into a PostGIS LWNURBSCURVE.
+ *
+ * Builds a new LWNURBSCURVE by extracting the NURBS degree, control points,
+ * optional rational weights, and optional knot vector from the provided
+ * SFCGAL NURBS geometry. Control points are copied into a new POINTARRAY;
+ * Z coordinates are preserved when present. SFCGAL does not carry M values
+ * so M is not populated. If the SFCGAL NURBS is rational, weights are
+ * extracted and passed through to the constructed LWNURBSCURVE. If the
+ * SFCGAL NURBS contains knots, the knot vector is copied as well.
+ *
+ * @param sfcgal_nurbs The source SFCGAL NURBS geometry (may be NULL).
+ * @param srid The SRID to assign to the resulting LWNURBSCURVE.
+ * @return Newly allocated LWNURBSCURVE on success, or NULL if sfcgal_nurbs
+ *         is NULL or conversion fails. Caller takes ownership of the result.
+ */
 static LWNURBSCURVE*
 sfcgal_nurbs_to_lwgeom_nurbs(const sfcgal_geometry_t* sfcgal_nurbs, int srid)
 {
@@ -460,10 +520,26 @@ sfcgal_nurbs_to_lwgeom_nurbs(const sfcgal_geometry_t* sfcgal_nurbs, int srid)
 }
 #endif /* POSTGIS_SFCGAL_VERSION >= 20300 */
 
-/*
- * Convert a SFCGAL structure to PostGIS LWGEOM
+/**
+ * Convert an SFCGAL geometry to an equivalent PostGIS LWGEOM.
  *
- * Throws an error on unsupported type
+ * Converts the provided sfcgal_geometry_t into a newly constructed LWGEOM
+ * representation with the given SRID. The conversion preserves dimensionality
+ * unless overridden by force3D (which requests a 3D output). Supports points,
+ * linestrings, triangles, polygons, multipoints/multilines/multipolygons/
+ * multisolid/geometrycollections, polyhedral surfaces, solids (as closed
+ * polyhedral surfaces), triangulated surfaces, and — when available —
+ * NURBS curves.
+ *
+ * @param geom Pointer to the input SFCGAL geometry (must be non-NULL).
+ * @param force3D If non-zero, request the resulting LWGEOM be 3D even if the
+ *                source geometry is 2D.
+ * @param srid  Spatial reference identifier to assign to the returned LWGEOM.
+ *
+ * @return Pointer to a newly allocated LWGEOM on success, or NULL on error.
+ *         For empty input geometries, returns the corresponding empty LWGEOM.
+ *         On unsupported or unknown SFCGAL types the function returns NULL
+ *         (and reports an error).
  */
 LWGEOM *
 SFCGAL2LWGEOM(const sfcgal_geometry_t *geom, int force3D, int32_t srid)
@@ -637,6 +713,20 @@ SFCGAL2LWGEOM(const sfcgal_geometry_t *geom, int force3D, int32_t srid)
 	}
 }
 
+/**
+ * Convert a PostGIS LWGEOM to an equivalent SFCGAL geometry.
+ *
+ * Converts the input LWGEOM into a newly allocated sfcgal_geometry_t representing
+ * the same geometric object. Empty LWGEOMs are mapped to empty SFCGAL geometries
+ * of the corresponding type. Supported LWGEOM types include POINT, LINESTRING,
+ * TRIANGLE, POLYGON, MULTI* collections, POLYHEDRALSURFACE, TRIANGULATEDSURFACE
+ * and (when compiled with POSTGIS_SFCGAL_VERSION >= 20300) NURBSCURVE.
+ *
+ * @param geom the input LWGEOM to convert (must be non-NULL)
+ * @return a newly allocated sfcgal_geometry_t equivalent to `geom`, or NULL if
+ *         the LWGEOM type is unsupported. The caller is responsible for freeing
+ *         the returned SFCGAL geometry.
+ */
 sfcgal_geometry_t *
 LWGEOM2SFCGAL(const LWGEOM *geom)
 {

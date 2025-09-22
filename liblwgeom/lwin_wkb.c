@@ -138,10 +138,19 @@ static inline void wkb_parse_state_check(wkb_parse_state *s, size_t next)
 }
 
 /**
-* Take in an unknown kind of wkb type number and ensure it comes out
-* as an extended WKB type number (with Z/M/SRID flags masked onto the
-* high bits).
-*/
+ * Resolve a raw WKB type number into the parser state' internal type and flags.
+ *
+ * Interprets WKB type encodings (including extended flag bits and ISO-style
+ * 1000/2000/3000 modifiers) and updates the provided parse state:
+ * - sets s->has_z, s->has_m, s->has_srid according to detected flags,
+ * - sets s->lwtype to the corresponding internal lwgeom type enum.
+ *
+ * Recognizes standard WKB types, ISO extended encodings (where 1000/2000/3000
+ * ranges indicate Z/M presence), explicit high-bit flag encodings, and a few
+ * legacy PostGIS values (e.g., old Curve/Surface codes). On unrecognized or
+ * out-of-range type numbers an error is reported via lwerror and the state is
+ * left with whatever values were set before the error.
+ */
 static void lwtype_from_wkb_state(wkb_parse_state *s, uint32_t wkb_type)
 {
 	uint32_t wkb_simple_type;
@@ -689,10 +698,24 @@ static LWCURVEPOLY* lwcurvepoly_from_wkb_state(wkb_parse_state *s)
 */
 
 /**
-* COLLECTION, MULTIPOINTTYPE, MULTILINETYPE, MULTIPOLYGONTYPE, COMPOUNDTYPE,
-* MULTICURVETYPE, MULTISURFACETYPE,
-* TINTYPE
-*/
+ * Parse a collection (MULTI-*/COLLECTION/TINTYPE/COMPOUND/CURVEPOLY/etc.) from WKB state.
+ *
+ * Reads the number of component geometries from the WKB parse state, constructs an
+ * empty LWCOLLECTION of the current s->lwtype/srid/dimension flags, then iteratively
+ * parses and appends each component geometry using lwgeom_from_wkb_state().
+ *
+ * Behavior and side effects:
+ * - Returns a newly allocated LWCOLLECTION containing the parsed components, or NULL on error.
+ * - For an empty collection (component count == 0) returns the empty collection.
+ * - If s->lwtype == POLYHEDRALSURFACETYPE, enables strict Z-closure checking by setting
+ *   the LW_PARSER_CHECK_ZCLOSURE flag in s->check before parsing components.
+ * - Increments s->depth while parsing to enforce recursion limits; if depth exceeds
+ *   LW_PARSER_MAX_DEPTH the function frees allocated resources, reports an error, and returns NULL.
+ * - On failure to parse or to add a component, frees any allocated geometry/collection and returns NULL.
+ *
+ * Return:
+ *   Pointer to a newly constructed LWCOLLECTION on success, or NULL on failure.
+ */
 static LWCOLLECTION* lwcollection_from_wkb_state(wkb_parse_state *s)
 {
 	uint32_t ngeoms = integer_from_wkb_state(s);
@@ -735,6 +758,23 @@ static LWCOLLECTION* lwcollection_from_wkb_state(wkb_parse_state *s)
 	return col;
 }
 
+/**
+ * Parse an ISO/IEC 13249-3:2016 NURBS curve from the current position of a WKB parse state.
+ *
+ * Reads the NURBSCURVE components in WKB order: degree, number of control points,
+ * per-control-point byte-order marker, coordinates (X, Y, optional Z and M), a 1-byte
+ * weight-present flag and optional weight value, then the knot count and knot values.
+ * If control-point count is zero an empty POINTARRAY is constructed with the current
+ * dimensionality. Knot count must be > 0 per the standard.
+ *
+ * On error (invalid data, unexpected EOF, invalid weight bit, allocation failure, or
+ * missing required knots) the function logs an error, frees any partially-allocated
+ * resources and returns NULL.
+ *
+ * Returns a newly-allocated LWNURBSCURVE on success; the caller owns the returned object.
+ *
+ * @return Pointer to constructed LWNURBSCURVE, or NULL on failure.
+ */
 static LWNURBSCURVE* lwnurbscurve_from_wkb_state(wkb_parse_state *s)
 {
     uint32_t degree, nknots, npoints;
@@ -862,12 +902,20 @@ static LWNURBSCURVE* lwnurbscurve_from_wkb_state(wkb_parse_state *s)
 }
 
 /**
-* GEOMETRY
-* Generic handling for WKB geometries. The front of every WKB geometry
-* (including those embedded in collections) is an endian byte, a type
-* number and an optional srid number. We handle all those here, then pass
-* to the appropriate handler for the specific type.
-*/
+ * Parse a single WKB geometry from the given parse state and return it as an LWGEOM.
+ *
+ * Reads the leading endian byte, the WKB type (and optional SRID), updates the parse
+ * state (including byte-swap flag, detected lwtype and srid), and dispatches to the
+ * specific geometry reader for the detected type. On success returns a newly
+ * allocated LWGEOM; on error or unsupported type returns NULL and sets s->error.
+ *
+ * Side effects:
+ * - Advances s->pos as data are consumed.
+ * - May set s->swap_bytes, s->lwtype, s->srid and s->error.
+ *
+ * Return:
+ *   Pointer to the parsed LWGEOM, or NULL on error or unsupported geometry type.
+ */
 LWGEOM* lwgeom_from_wkb_state(wkb_parse_state *s)
 {
 	char wkb_little_endian;

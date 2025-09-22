@@ -663,6 +663,16 @@ static size_t gserialized1_from_lwcircstring_size(const LWCIRCSTRING *curve)
 	return size;
 }
 
+/**
+ * Compute the GSERIALIZED byte size required to serialize an LWCOLLECTION.
+ *
+ * The size includes a 4-byte type code, a 4-byte uint32 count of sub-geometries
+ * (0 for an empty collection), and the serialized size of each contained
+ * geometry (recursively computed via gserialized1_from_any_size).
+ *
+ * @param col LWCOLLECTION to measure; must be non-NULL.
+ * @return Total number of bytes required to serialize `col` in GSERIALIZED1 format.
+ */
 static size_t gserialized1_from_lwcollection_size(const LWCOLLECTION *col)
 {
 	size_t size = 4; /* Type number. */
@@ -684,6 +694,17 @@ static size_t gserialized1_from_lwcollection_size(const LWCOLLECTION *col)
 	return size;
 }
 
+/**
+ * Compute the number of bytes required to serialize a LWNURBSCURVE in GSERIALIZED1 format.
+ *
+ * The returned size includes the type tag and all fields written for a NURBS curve:
+ * degree, counts (nweights, nknots, npoints), optional weights and knots arrays (when present),
+ * and the control point ordinates (omitted if npoints == 0). Dimensions are determined from the
+ * curve flags.
+ *
+ * @param curve NURBS curve to size (must be non-NULL).
+ * @return Number of bytes required to serialize the given curve.
+ */
 static size_t gserialized1_from_lwnurbscurve_size(const LWNURBSCURVE *curve)
 {
 	size_t size = 4; /* Type number. */
@@ -706,6 +727,16 @@ static size_t gserialized1_from_lwnurbscurve_size(const LWNURBSCURVE *curve)
 	return size;
 }
 
+/**
+ * Compute the number of bytes required to serialize a geometry (GSERIALIZED1).
+ *
+ * Determines the serialized size for the given LWGEOM by dispatching to the
+ * per-geometry-type size helper.
+ *
+ * @param geom Geometry to measure; must be non-NULL.
+ * @return Number of bytes required to serialize `geom` in GSERIALIZED1 format,
+ *         or 0 if `geom->type` is unrecognized.
+ */
 static size_t gserialized1_from_any_size(const LWGEOM *geom)
 {
 	LWDEBUGF(2, "Input type: %s", lwtype_name(geom->type));
@@ -970,6 +1001,23 @@ static size_t gserialized1_from_lwcircstring(const LWCIRCSTRING *curve, uint8_t 
 	return (size_t)(loc - buf);
 }
 
+/**
+ * Serialize an LWCOLLECTION into a GSERIALIZED1 buffer.
+ *
+ * Writes the collection type (uint32), the number of member geometries (uint32),
+ * then serializes each child geometry sequentially into the provided buffer.
+ *
+ * Preconditions: coll and buf must be non-NULL; buf must have sufficient space
+ * for the entire serialized collection (use gserialized1_from_lwcollection_size).
+ *
+ * Notes:
+ * - Validates that each child geometry has the same dimensional Z/M flags as
+ *   the collection and reports an error via lwerror() on mismatch.
+ *
+ * @param coll Collection to serialize.
+ * @param buf  Output buffer to receive serialized bytes.
+ * @return Number of bytes written into buf.
+ */
 static size_t gserialized1_from_lwcollection(const LWCOLLECTION *coll, uint8_t *buf)
 {
 	size_t subsize = 0;
@@ -1004,16 +1052,30 @@ static size_t gserialized1_from_lwcollection(const LWCOLLECTION *coll, uint8_t *
 }
 
 /**
- * Serialize a NURBS curve to GSerialized1 format buffer
+ * Serialize a NURBS curve into the PostGIS GSERIALIZED1 binary layout.
  *
- * This function follows PostGIS's serialization contract where:
- * - Bytes 0-3: Geometry type (NURBSCURVETYPE)
- * - Bytes 4-7: Critical count for empty detection (npoints for NURBS)
- * - Remaining bytes: Geometry-specific data in logical order
+ * Produces a contiguous buffer encoding of `curve` suitable for storage as
+ * GSERIALIZED1. The layout written is:
+ * - bytes 0-3: geometry type (NURBSCURVETYPE)
+ * - bytes 4-7: critical count for emptiness detection (npoints)
+ * - bytes 8-11: degree (uint32)
+ * - bytes 12-15: nweights (uint32)
+ * - bytes 16-19: nknots (uint32)
+ * - variable: weights (double[]) if present
+ * - variable: knots (double[]) if present
+ * - variable: control point ordinates (native point array bytes) if npoints > 0
  *
- * The critical insight is that gserialized1_is_empty_recurse() reads bytes 4-7
- * to determine emptiness. For NURBS curves, a curve is empty when it has zero
- * control points, so npoints must be placed at this strategic position.
+ * NOTE: gserialized1_is_empty_recurse() relies on the 4-7 byte slot to
+ * determine whether the geometry is empty. For NURBS, emptiness is defined
+ * as npoints == 0; therefore `npoints` is written at that exact position.
+ *
+ * @param curve Pointer to the LWNURBSCURVE to serialize. Must be non-NULL.
+ *              If `curve->points` is present, its dimensional flags must
+ *              match `curve->flags`.
+ * @param buf   Writable buffer to receive the serialized bytes. The caller
+ *              must ensure `buf` has sufficient space (use the corresponding
+ *              size-computation helper beforehand).
+ * @return Number of bytes written into `buf`.
  */
 static size_t gserialized1_from_lwnurbscurve(const LWNURBSCURVE *curve, uint8_t *buf)
 {
@@ -1129,6 +1191,18 @@ static size_t gserialized1_from_lwnurbscurve(const LWNURBSCURVE *curve, uint8_t 
     return (size_t)(loc - buf);
 }
 
+/**
+ * Serialize an LWGEOM into GSERIALIZED1 format by dispatching to the type-specific serializer.
+ *
+ * Given a populated LWGEOM, calls the appropriate gserialized1_from_* helper for the geometry's
+ * concrete type and writes the serialized bytes into the provided buffer.
+ *
+ * @param geom The input geometry to serialize (must be non-NULL).
+ * @param buf  Destination buffer for serialized data; must be writable and large enough
+ *             (use gserialized1_from_lwgeom_size to compute required size).
+ * @return The number of bytes written into buf on success; 0 if the geometry type is unknown
+ *         or serialization fails.
+ */
 static size_t gserialized1_from_lwgeom_any(const LWGEOM *geom, uint8_t *buf)
 {
 	assert(geom);
@@ -1495,6 +1569,19 @@ static LWCIRCSTRING* lwcircstring_from_gserialized1_buffer(uint8_t *data_ptr, lw
 	return circstring;
 }
 
+/**
+ * Deserialize a GSERIALIZED collection from a binary buffer into a newly-allocated LWCOLLECTION.
+ *
+ * Reads a collection layout starting at data_ptr: 32-bit type, 32-bit number of sub-geometries
+ * (ngeoms), followed by each sub-geometry encoded in GSERIALIZED1 format. Sub-geometries are
+ * deserialized with bounding-box derivation disabled. On subtype validation failure the function
+ * logs an error, frees the partially-constructed collection, and returns NULL.
+ *
+ * @param data_ptr Pointer to the start of the collection payload in GSERIALIZED1 format (must be non-NULL).
+ * @param lwflags Flags used for the constructed LWGEOMs; bbox flag is cleared for sub-geometries.
+ * @param size If non-NULL, receives the number of bytes consumed from data_ptr while deserializing the collection.
+ * @return Pointer to a newly-allocated LWCOLLECTION on success, or NULL on error (e.g., invalid subtype).
+ */
 static LWCOLLECTION* lwcollection_from_gserialized1_buffer(uint8_t *data_ptr, lwflags_t lwflags, size_t *size)
 {
 	uint32_t type;
@@ -1554,15 +1641,21 @@ static LWCOLLECTION* lwcollection_from_gserialized1_buffer(uint8_t *data_ptr, lw
 }
 
 /**
- * Deserialize a NURBS curve from GSerialized1 format buffer
+ * Deserialize a NURBS curve from a GSERIALIZED1 buffer into a newly allocated LWNURBSCURVE.
  *
- * This function must read the serialized data in exactly the same order
- * that gserialized1_from_lwnurbscurve wrote it. The byte layout is:
+ * The buffer layout consumed by this function (in order) is:
+ *   [Type:4][NPoints:4][Degree:4][NWeights:4][NKnots:4][Weights:var][Knots:var][Points:var]
  *
- * [Type:4][NPoints:4][Degree:4][NWeights:4][NKnots:4][Weights:var][Knots:var][Points:var]
+ * NPoints (bytes 4-7) is the canonical count used by empty-geometry checks: when NPoints == 0
+ * the resulting curve is considered empty and will contain an empty POINTARRAY with the
+ * dimensionality given by lwflags. Weights and knots are optional arrays present only when
+ * their respective counts are non-zero. Control point coordinates follow as packed doubles
+ * with FLAGS_NDIMS(lwflags) doubles per point.
  *
- * Understanding this layout is crucial because gserialized1_is_empty_recurse
- * depends on the NPoints field being at bytes 4-7 for correct empty detection.
+ * @param data_ptr Pointer to the start of the serialized geometry payload (type word must be present).
+ * @param lwflags Dimensional flags (z/m presence) to apply to the constructed curve and its POINTARRAY.
+ * @param size Optional out parameter; if non-NULL, receives the number of bytes consumed from data_ptr.
+ * @return Pointer to a newly allocated LWNURBSCURVE populated from the buffer (empty curve allowed).
  */
 static LWNURBSCURVE *
 lwnurbscurve_from_gserialized1_buffer(uint8_t *data_ptr, lwflags_t lwflags, size_t *size)
@@ -1713,6 +1806,20 @@ lwnurbscurve_from_gserialized1_buffer(uint8_t *data_ptr, lwflags_t lwflags, size
     return curve;
 }
 
+/**
+ * Construct an LWGEOM from a GSERIALIZED1 geometry buffer (dispatch by type).
+ *
+ * data_ptr must point to the geometry payload beginning with the 32-bit geometry
+ * type (i.e. caller should have already advanced past the GSERIALIZED header and
+ * optional bbox). This function reads the type and delegates to the appropriate
+ * per-type deserializer (POINT, LINE, POLYGON, TRIANGLE, CIRCSTRING, COLLECTION
+ * variants, NURBSCURVE, etc.).
+ *
+ * @param data_ptr Pointer to the start of the serialized geometry payload (type at offset 0).
+ * @param lwflags Geometry flags (Z/M/geodetic/bbox) to apply when constructing the LWGEOM.
+ * @param g_size If non-NULL, set to the number of bytes consumed from data_ptr for this geometry.
+ * @return Pointer to a newly constructed LWGEOM on success, or NULL on error (unknown type or deserialization failure).
+ */
 LWGEOM* lwgeom_from_gserialized1_buffer(uint8_t *data_ptr, lwflags_t lwflags, size_t *g_size)
 {
 	uint32_t type;

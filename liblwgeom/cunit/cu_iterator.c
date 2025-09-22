@@ -43,6 +43,16 @@ char* inputs[] =
 		"NURBSCURVE(1, (0 0, 10 0, 20 0))"
 };
 
+/**
+ * Count the number of point vertices in a geometry using the LWGEOM point iterator.
+ *
+ * Iterates over `g` with lwpointiterator_create/lwpointiterator_next and returns the total
+ * number of points visited. The function does not modify `g`. It uses CUnit assertions
+ * to verify each iterator step succeeds.
+ *
+ * @param g Pointer to a valid LWGEOM to inspect (must not be NULL).
+ * @return The number of point vertices discovered by the iterator.
+ */
 static uint32_t
 count_points_using_iterator(LWGEOM* g)
 {
