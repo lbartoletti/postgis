@@ -474,7 +474,13 @@ sfcgal_nurbs_to_lwgeom_nurbs(const sfcgal_geometry_t* sfcgal_nurbs, int srid)
 		pt = sfcgal_nurbs_curve_control_point_n(sfcgal_nurbs, 0);
 		/* Check dimensionality */
 		has_z = (sfcgal_geometry_dimension(pt) >= 3 || sfcgal_geometry_is_3d(pt));
-		has_m = 0; /* SFCGAL doesn't support M coordinates directly */
+		/* Check dimensionality */
+		has_z = (sfcgal_geometry_dimension(pt) >= 3 || sfcgal_geometry_is_3d(pt));
+#if POSTGIS_SFCGAL_VERSION >= 10308
+		has_m = sfcgal_geometry_is_measured(pt);
+#else
+		has_m = 0; /* SFCGAL doesn't support M coordinates in older versions */
+#endif
 	}
 
 	/* Create point array */
