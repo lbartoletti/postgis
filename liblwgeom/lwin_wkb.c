@@ -698,7 +698,11 @@ static LWCURVEPOLY* lwcurvepoly_from_wkb_state(wkb_parse_state *s)
 */
 
 /**
- * Parse a collection (MULTI-*/COLLECTION/TINTYPE/COMPOUND/CURVEPOLY/etc.) from WKB state.
+LWGEOM* lwgeom_from_wkb_state(wkb_parse_state *s);
+static LWCOLLECTION* lwcollection_from_wkb_state(wkb_parse_state *s);
+static LWNURBSCURVE* lwnurbscurve_from_wkb_state(wkb_parse_state *s);
+
+/* Parse a collection (MULTI-*/COLLECTION/TINTYPE/COMPOUND/CURVEPOLY/etc.) from WKB state.
  *
  * Reads the number of component geometries from the WKB parse state, constructs an
  * empty LWCOLLECTION of the current s->lwtype/srid/dimension flags, then iteratively
