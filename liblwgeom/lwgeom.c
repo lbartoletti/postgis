@@ -1381,6 +1381,9 @@ uint32_t lwgeom_count_vertices(const LWGEOM *geom)
 	case LINETYPE:
 		result = lwline_count_vertices((const LWLINE *)geom);
 		break;
+	case NURBSCURVETYPE:
+		result = ((const LWNURBSCURVE *)geom)->points->npoints;
+		break;
 	case POLYGONTYPE:
 		result = lwpoly_count_vertices((const LWPOLY *)geom);
 		break;

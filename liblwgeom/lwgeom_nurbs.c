@@ -297,3 +297,38 @@ lwnurbscurve_as_lwgeom(const LWNURBSCURVE *obj)
 {
 	return (LWGEOM *)obj;
 }
+
+/**
+ * Cast a generic LWGEOM to a NURBS curve.
+ *
+ * This performs a safe type check and cast from LWGEOM to LWNURBSCURVE.
+ * Returns NULL if the input is not a NURBS curve type.
+ *
+ * @param lwgeom Geometry to cast (may be NULL)
+ * @return The same pointer cast to LWNURBSCURVE*, or NULL if not a NURBSCURVE
+ */
+LWNURBSCURVE *
+lwgeom_as_lwnurbscurve(const LWGEOM *lwgeom)
+{
+	if ( lwgeom == NULL ) return NULL;
+	if ( lwgeom->type == NURBSCURVETYPE )
+		return (LWNURBSCURVE *)lwgeom;
+	else return NULL;
+}
+
+/**
+ * Get the control points from a NURBS curve.
+ *
+ * Returns the POINTARRAY containing the control points that define
+ * the NURBS curve. The returned pointer points directly to the curve's
+ * internal data structure and should not be modified or freed.
+ *
+ * @param curve NURBS curve to extract control points from (must not be NULL)
+ * @return Pointer to the control points array, or NULL if curve is NULL
+ */
+POINTARRAY *
+lwnurbscurve_get_control_points(const LWNURBSCURVE *curve)
+{
+	if ( curve == NULL ) return NULL;
+	return curve->points;
+}
