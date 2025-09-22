@@ -497,8 +497,9 @@ Datum ST_MakeNurbsCurveComplete(PG_FUNCTION_ARGS)
 
 	/* Create NURBS curve with specified parameters */
 	ctrl_pts = ptarray_clone_deep(line->points);
+	ctrl_pts = ptarray_clone_deep(line->points);
 	nurbs = lwnurbscurve_construct(control_geom->srid, degree, ctrl_pts,
-		weights, knots, 0, 0);
+		weights, knots, weight_count, knot_count);
 
 	if (!nurbs) {
 		if (weights) pfree(weights);
