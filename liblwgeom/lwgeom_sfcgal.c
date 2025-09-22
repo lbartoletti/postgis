@@ -132,11 +132,10 @@ SFCGAL_type_to_lwgeom_type(sfcgal_geometry_type_t type)
 	case SFCGAL_TYPE_TRIANGLE:
 		return TRIANGLETYPE;
 
-#if POSTGIS_SFCGAL_VERSION >= 20300
+#if defined(POSTGIS_SFCGAL_VERSION) && (POSTGIS_SFCGAL_VERSION >= 20300) && defined(SFCGAL_TYPE_NURBSCURVE)
 	case SFCGAL_TYPE_NURBSCURVE:
 		return NURBSCURVETYPE;
 #endif
-
 	default:
 		lwerror("SFCGAL_type_to_lwgeom_type: Unknown Type");
 		return 0;
