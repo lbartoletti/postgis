@@ -1729,7 +1729,12 @@ lwnurbscurve_from_gserialized2_buffer(uint8_t *data_ptr, lwflags_t lwflags, size
 
     /* Allocate and initialize the NURBS curve structure */
     curve = (LWNURBSCURVE*)lwalloc(sizeof(LWNURBSCURVE));
-    curve->srid = SRID_UNKNOWN;  /* SRID is handled at a higher level */
+    /* Allocate and initialize the NURBS curve structure */
+    curve = (LWNURBSCURVE*)lwalloc(sizeof(LWNURBSCURVE));
+    curve->srid = srid;  /* Use the SRID passed from caller */
+    curve->bbox = NULL;          /* Bounding box computed separately if needed */
+    curve->type = NURBSCURVETYPE;
+    curve->flags = lwflags;      /* Dimensional flags passed from caller */
     curve->bbox = NULL;          /* Bounding box computed separately if needed */
     curve->type = NURBSCURVETYPE;
     curve->flags = lwflags;      /* Dimensional flags passed from caller */
