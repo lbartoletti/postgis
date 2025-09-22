@@ -1924,7 +1924,8 @@ lwgeom_from_gserialized2_buffer(uint8_t *data_ptr, lwflags_t lwflags, size_t *g_
 	case COLLECTIONTYPE:
 		return (LWGEOM *)lwcollection_from_gserialized2_buffer(data_ptr, lwflags, g_size, srid);
 	case NURBSCURVETYPE:
-		return (LWGEOM *)lwnurbscurve_from_gserialized2_buffer(data_ptr, lwflags, g_size);
+	case NURBSCURVETYPE:
+		return (LWGEOM *)lwnurbscurve_from_gserialized2_buffer(data_ptr, lwflags, g_size, srid);
 	default:
 		lwerror("Unknown geometry type: %d - %s", type, lwtype_name(type));
 		return NULL;
