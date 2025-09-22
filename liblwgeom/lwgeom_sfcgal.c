@@ -523,6 +523,11 @@ sfcgal_nurbs_to_lwgeom_nurbs(const sfcgal_geometry_t* sfcgal_nurbs, int srid)
 	result = lwnurbscurve_construct(srid, degree, pa, weights, knots,
 		weights ? num_points : 0, num_knots);
 
+	if (!result) {
+	 if (pa) ptarray_free(pa);
+	 /* weights/knots freed below */
+	}
+
 	/* Free temporary buffers after constructor deep-copies them */
 	if (weights) lwfree(weights);
 	if (knots) lwfree(knots);

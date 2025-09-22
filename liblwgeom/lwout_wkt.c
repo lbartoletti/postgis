@@ -694,9 +694,9 @@ static void lwnurbscurve_to_wkt_sb(const LWNURBSCURVE *curve, stringbuffer_t *sb
             }
         } else {
             /* Generate default uniform weights (1.0 for each control point) */
-            for (uint32_t i = 0; i < curve->points->npoints; i++) {
+	    for (uint32_t i = 0; i < curve->points->npoints; i++) {
                 if (i > 0) stringbuffer_append_len(sb, ",", 1);
-                stringbuffer_aprintf(sb, "1");
+                stringbuffer_append_double(sb, 1.0, precision);
             }
         }
         stringbuffer_append_len(sb, ")", 1);

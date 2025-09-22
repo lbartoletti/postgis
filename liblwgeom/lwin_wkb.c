@@ -731,12 +731,17 @@ static LWCOLLECTION* lwcollection_from_wkb_state(wkb_parse_state *s)
 	LWCOLLECTION *col = lwcollection_construct_empty(s->lwtype, s->srid, s->has_z, s->has_m);
 	LWGEOM *geom = NULL;
 	uint32_t i;
+	int8_t prev_check = s->check;
+	uint8_t start_depth = s->depth;
 
 	LWDEBUGF(4,"Collection has %d components", ngeoms);
 
 	/* Empty collection? */
 	if ( ngeoms == 0 )
-		return col;
+	{
+	    s->check = prev_check;
+	    return col;
+	}
 
 	/* Be strict in polyhedral surface closures */
 	if ( s->lwtype == POLYHEDRALSURFACETYPE )
@@ -747,20 +752,25 @@ static LWCOLLECTION* lwcollection_from_wkb_state(wkb_parse_state *s)
 	{
 		lwcollection_free(col);
 		lwerror("Geometry has too many chained collections");
+		s->check = prev_check;
+		s->depth = start_depth;
 		return NULL;
 	}
 	for ( i = 0; i < ngeoms; i++ )
 	{
 		geom = lwgeom_from_wkb_state(s);
-		if ( lwcollection_add_lwgeom(col, geom) == NULL )
+		if (!geom || lwcollection_add_lwgeom(col, geom) == NULL )
 		{
 			lwgeom_free(geom);
 			lwgeom_free((LWGEOM *)col);
 			lwerror("Unable to add geometry (%p) to collection (%p)", (void *) geom, (void *) col);
+			s->check = prev_check;
+			s->depth = start_depth;
 			return NULL;
 		}
 	}
 	s->depth--;
+	s->check = prev_check;
 
 	return col;
 }
@@ -784,13 +794,21 @@ static LWCOLLECTION* lwcollection_from_wkb_state(wkb_parse_state *s)
  */
 static LWNURBSCURVE* lwnurbscurve_from_wkb_state(wkb_parse_state *s)
 {
-    uint32_t degree, nknots, npoints;
+    uint32_t degree = 0, nknots = 0, npoints = 0;
     double *weights = NULL, *knots = NULL;
     POINTARRAY *points = NULL;
+    int all_weights_one = 1;
 
     /* ISO/IEC 13249-3:2016 compliant parsing */
     degree = integer_from_wkb_state(s);
     if (s->error) return NULL;
+
+    /* Defensive upper bound (worst-case 4 doubles/point) */
+    static const uint32_t MAXPOINTS = (uint32_t)(UINT_MAX / (WKB_DOUBLE_SIZE * 4));
+    if (npoints > MAXPOINTS) {
+        lwerror("WKB NURBSCURVE: control point count (%u) too large", npoints);
+        return NULL;
+    }
 
     /* Read control points count */
     npoints = integer_from_wkb_state(s);
@@ -808,6 +826,12 @@ static LWNURBSCURVE* lwnurbscurve_from_wkb_state(wkb_parse_state *s)
             /* Read byte order for this point (ISO requirement) */
 	    uint8_t point_endian = byte_from_wkb_state(s);
             if (s->error) {
+                lwfree(weights);
+                ptarray_free(points);
+                return NULL;
+            }
+	    if (point_endian != 0 && point_endian != 1) {
+                lwerror("WKB NURBSCURVE: invalid endian flag %u at control point %u", point_endian, i);
                 lwfree(weights);
                 ptarray_free(points);
                 return NULL;
@@ -875,7 +899,6 @@ static LWNURBSCURVE* lwnurbscurve_from_wkb_state(wkb_parse_state *s)
                 weights[i] = 1.0;
             } else if (has_weight == 1) {
                 /* Custom weight follows */
-		wkb_parse_state_check(s, WKB_DOUBLE_SIZE); if (s->error) { lwfree(weights); ptarray_free(points); return NULL; }
                 weights[i] = double_from_wkb_state(s);
                 if (weights[i] <= 0.0) {
                     lwerror("WKB NURBSCURVE: non-positive weight for point %d", i);
@@ -888,6 +911,7 @@ static LWNURBSCURVE* lwnurbscurve_from_wkb_state(wkb_parse_state *s)
                     ptarray_free(points);
                     return NULL;
                 }
+		if (weights[i] != 1.0) all_weights_one = 0;
             } else {
                 lwerror("WKB NURBSCURVE: invalid weight bit %d for point %d (must be 0 or 1)", has_weight, i);
                 lwfree(weights);
@@ -947,7 +971,9 @@ static LWNURBSCURVE* lwnurbscurve_from_wkb_state(wkb_parse_state *s)
         }
     }
 
-    LWNURBSCURVE *curve = lwnurbscurve_construct(s->srid, degree, points, weights, knots, npoints, nknots);
+    uint32_t nweights = all_weights_one ? 0U : npoints;
+    if (all_weights_one) { lwfree(weights); weights = NULL; }
+    LWNURBSCURVE *curve = lwnurbscurve_construct(s->srid, degree, points, weights, knots, nweights, nknots);
     if (!curve) {
         if (weights) lwfree(weights);
         if (knots) lwfree(knots);
