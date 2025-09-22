@@ -887,6 +887,16 @@ static LWNURBSCURVE* lwnurbscurve_from_wkb_state(wkb_parse_state *s)
         return NULL;
     }
 
+    /* Validate knot count against B-spline formula */
+    uint32_t expected_knots = npoints + degree + 1;
+    if (nknots != expected_knots) {
+        lwerror("WKB NURBSCURVE: expected %d knots for degree %d and %d points, got %d",
+                expected_knots, degree, npoints, nknots);
+        lwfree(weights);
+        ptarray_free(points);
+        return NULL;
+    }
+
     knots = lwalloc(sizeof(double) * nknots);
     for (uint32_t i = 0; i < nknots; i++) {
         knots[i] = double_from_wkb_state(s);
