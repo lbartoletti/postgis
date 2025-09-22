@@ -38,3 +38,6 @@ wkt_nurbs_zm_weights|ST_NurbsCurve
 wkt_nurbs_zm_full|ST_NurbsCurve
 wkt_nurbs_m_preserved|t
 wkt_nurbs_zm_preserved|t
+ERROR:  parse error - invalid geometry
+ERROR:  parse error - invalid geometry
+ERROR:  parse error - invalid geometry

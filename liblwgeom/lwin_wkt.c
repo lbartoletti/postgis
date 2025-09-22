@@ -997,23 +997,45 @@ POINT wkt_parser_nurbs_coord_4(double c1, double c2, double c3, double weight)
  * @return Pointer to the constructed LWGEOM representing the NURBS curve, or
  *         NULL on error.
  */
-LWGEOM* wkt_parser_nurbscurve_new(int degree, POINTARRAY *points, POINTARRAY *weights, POINTARRAY *knots, char *dimensionality)
+LWGEOM* wkt_parser_nurbscurve_new(double degree, POINTARRAY *points, POINTARRAY *weights, POINTARRAY *knots, char *dimensionality)
 {
 	LWNURBSCURVE *curve;
 	double *weight_array = NULL;
 	double *knot_array = NULL;
 	uint32_t nweights = 0, nknots = 0;
 	lwflags_t flags = wkt_dimensionality(dimensionality);
+	int int_degree;
 
 	LWDEBUG(4,"entered wkt_parser_nurbscurve_new");
 
-	/* Handle simple format compatibility - if degree is 0, use default degree 2 */
-	if (degree == 0) {
-		degree = 2;
+	/* Validate degree is finite and not fractional */
+	if (!isfinite(degree)) {
+		if (points) ptarray_free(points);
+		if (weights) ptarray_free(weights);
+		if (knots) ptarray_free(knots);
+		SET_PARSER_ERROR(PARSER_ERROR_OTHER);
+		return NULL;
 	}
 
-	/* Validate degree */
-	if (degree < 1 || degree > 10) {
+	/* Check if degree has a fractional part */
+	if (fabs(degree - round(degree)) >= 1e-10) {
+		if (points) ptarray_free(points);
+		if (weights) ptarray_free(weights);
+		if (knots) ptarray_free(knots);
+		SET_PARSER_ERROR(PARSER_ERROR_OTHER);
+		return NULL;
+	}
+
+	/* Cast to int after validation */
+	int_degree = (int)round(degree);
+
+	/* Handle simple format compatibility - if degree is 0, use default degree 2 */
+	if (int_degree == 0) {
+		int_degree = 2;
+	}
+
+	/* Validate degree range */
+	if (int_degree < 1 || int_degree > 10) {
 		if (points) ptarray_free(points);
 		if (weights) ptarray_free(weights);
 		if (knots) ptarray_free(knots);
@@ -1029,7 +1051,7 @@ LWGEOM* wkt_parser_nurbscurve_new(int degree, POINTARRAY *points, POINTARRAY *we
 	}
 
 	/* Validate minimum points for degree */
-	if (points->npoints < (uint32_t)(degree + 1)) {
+	if (points->npoints < (uint32_t)(int_degree + 1)) {
 		ptarray_free(points);
 		if (weights) ptarray_free(weights);
 		if (knots) ptarray_free(knots);
@@ -1085,7 +1107,7 @@ LWGEOM* wkt_parser_nurbscurve_new(int degree, POINTARRAY *points, POINTARRAY *we
 	/* Extract knots if provided */
 	if (knots && knots->npoints > 0) {
 		nknots = knots->npoints;
-		uint32_t expected_knots = points->npoints + degree + 1;
+		uint32_t expected_knots = points->npoints + int_degree + 1;
 
 		if (nknots != expected_knots) {
 			ptarray_free(points);
@@ -1121,11 +1143,38 @@ LWGEOM* wkt_parser_nurbscurve_new(int degree, POINTARRAY *points, POINTARRAY *we
 			}
 		}
 
+		/* Validate clamped endpoints: first and last knot values should repeat degree+1 times */
+		uint32_t degree_plus_one = (uint32_t)(int_degree + 1);
+
+		/* Check first knot repeats degree+1 times */
+		for (uint32_t i = 1; i < degree_plus_one && i < nknots; i++) {
+			if (knot_array[i] != knot_array[0]) {
+				ptarray_free(points);
+				if (weight_array) lwfree(weight_array);
+				ptarray_free(knots);
+				lwfree(knot_array);
+				SET_PARSER_ERROR(PARSER_ERROR_OTHER);
+				return NULL;
+			}
+		}
+
+		/* Check last knot repeats degree+1 times */
+		for (uint32_t i = nknots - degree_plus_one; i < nknots - 1; i++) {
+			if (knot_array[i] != knot_array[nknots - 1]) {
+				ptarray_free(points);
+				if (weight_array) lwfree(weight_array);
+				ptarray_free(knots);
+				lwfree(knot_array);
+				SET_PARSER_ERROR(PARSER_ERROR_OTHER);
+				return NULL;
+			}
+		}
+
 		ptarray_free(knots);
 	}
 
 	/* Create the NURBS curve */
-	curve = lwnurbscurve_construct(SRID_UNKNOWN, degree, points, weight_array, knot_array, nweights, nknots);
+	curve = lwnurbscurve_construct(SRID_UNKNOWN, int_degree, points, weight_array, knot_array, nweights, nknots);
 
 	if (!curve) {
 		if (weight_array) lwfree(weight_array);

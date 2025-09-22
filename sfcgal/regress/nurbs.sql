@@ -211,3 +211,14 @@ SELECT 'wkt_nurbs_m_preserved', (ST_NDims(
 SELECT 'wkt_nurbs_zm_preserved', (ST_NDims(
     'NURBSCURVE ZM (2, (0 0 0 0, 5 10 5 1, 10 0 0 2))'::geometry
 ) = 4) AS has_zm_dimensions;
+
+-- Negative test cases: These should fail parsing
+
+-- Test fractional degree rejection
+SELECT 'wkt_nurbs_fractional_degree_fail', ST_GeomFromText('NURBSCURVE(2.5, (0 0, 5 5, 10 0))') IS NULL AS should_be_null;
+
+-- Test out-of-order knots rejection
+SELECT 'wkt_nurbs_bad_knots_fail', ST_GeomFromText('NURBSCURVE(2, (0 0, 5 5, 10 0), (1, 1, 1), (0, 1, 0.5, 1))') IS NULL AS should_be_null;
+
+-- Test incorrect boundary multiplicity rejection
+SELECT 'wkt_nurbs_bad_multiplicity_fail', ST_GeomFromText('NURBSCURVE(2, (0 0, 5 5, 10 0), (1, 1, 1), (0, 0, 1, 1, 1, 1))') IS NULL AS should_be_null;

@@ -556,25 +556,25 @@ coordinate :
 nurbscurve :
 	/* Full syntax: NURBSCURVE(degree, (points), (weights), (knots)) */
 	NURBSCURVE_TOK LBRACKET_TOK DOUBLE_TOK COMMA_TOK LBRACKET_TOK ptarray RBRACKET_TOK COMMA_TOK LBRACKET_TOK weight_list RBRACKET_TOK COMMA_TOK LBRACKET_TOK knot_list RBRACKET_TOK RBRACKET_TOK
-		{ $$ = wkt_parser_nurbscurve_new((int)$3, $6, $10, $14, NULL); WKT_ERROR(); } |
+		{ $$ = wkt_parser_nurbscurve_new($3, $6, $10, $14, NULL); WKT_ERROR(); } |
 	NURBSCURVE_TOK DIMENSIONALITY_TOK LBRACKET_TOK DOUBLE_TOK COMMA_TOK LBRACKET_TOK ptarray RBRACKET_TOK COMMA_TOK LBRACKET_TOK weight_list RBRACKET_TOK COMMA_TOK LBRACKET_TOK knot_list RBRACKET_TOK RBRACKET_TOK
-		{ $$ = wkt_parser_nurbscurve_new((int)$4, $7, $11, $15, $2); WKT_ERROR(); } |
+		{ $$ = wkt_parser_nurbscurve_new($4, $7, $11, $15, $2); WKT_ERROR(); } |
 	/* With weights only: NURBSCURVE(degree, (points), (weights)) */
 	NURBSCURVE_TOK LBRACKET_TOK DOUBLE_TOK COMMA_TOK LBRACKET_TOK ptarray RBRACKET_TOK COMMA_TOK LBRACKET_TOK weight_list RBRACKET_TOK RBRACKET_TOK
-		{ $$ = wkt_parser_nurbscurve_new((int)$3, $6, $10, NULL, NULL); WKT_ERROR(); } |
+		{ $$ = wkt_parser_nurbscurve_new($3, $6, $10, NULL, NULL); WKT_ERROR(); } |
 	NURBSCURVE_TOK DIMENSIONALITY_TOK LBRACKET_TOK DOUBLE_TOK COMMA_TOK LBRACKET_TOK ptarray RBRACKET_TOK COMMA_TOK LBRACKET_TOK weight_list RBRACKET_TOK RBRACKET_TOK
-		{ $$ = wkt_parser_nurbscurve_new((int)$4, $7, $11, NULL, $2); WKT_ERROR(); } |
+		{ $$ = wkt_parser_nurbscurve_new($4, $7, $11, NULL, $2); WKT_ERROR(); } |
 	/* With degree only: NURBSCURVE(degree, (points)) */
 	NURBSCURVE_TOK LBRACKET_TOK DOUBLE_TOK COMMA_TOK LBRACKET_TOK ptarray RBRACKET_TOK RBRACKET_TOK
-		{ $$ = wkt_parser_nurbscurve_new((int)$3, $6, NULL, NULL, NULL); WKT_ERROR(); } |
+		{ $$ = wkt_parser_nurbscurve_new($3, $6, NULL, NULL, NULL); WKT_ERROR(); } |
 	NURBSCURVE_TOK DIMENSIONALITY_TOK LBRACKET_TOK DOUBLE_TOK COMMA_TOK LBRACKET_TOK ptarray RBRACKET_TOK RBRACKET_TOK
-		{ $$ = wkt_parser_nurbscurve_new((int)$4, $7, NULL, NULL, $2); WKT_ERROR(); } |
-	
+		{ $$ = wkt_parser_nurbscurve_new($4, $7, NULL, NULL, $2); WKT_ERROR(); } |
+
 
 	NURBSCURVE_TOK DIMENSIONALITY_TOK EMPTY_TOK
-		{ $$ = wkt_parser_nurbscurve_new(0, NULL, NULL, NULL, $2); WKT_ERROR(); } |
+		{ $$ = wkt_parser_nurbscurve_empty($2); WKT_ERROR(); } |
 	NURBSCURVE_TOK EMPTY_TOK
-		{ $$ = wkt_parser_nurbscurve_new(0, NULL, NULL, NULL, NULL); WKT_ERROR(); }
+		{ $$ = wkt_parser_nurbscurve_empty(NULL); WKT_ERROR(); }
 	;
 
 weight_list :
