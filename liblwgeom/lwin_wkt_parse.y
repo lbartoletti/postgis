@@ -186,7 +186,7 @@ int lwgeom_parse_wkt(LWGEOM_PARSER_RESULT *parser_result, char *wktstr, int pars
 %destructor { ptarray_free($$); } ptarray
 %destructor { ptarray_free($$); } ring
 %destructor { ptarray_free($$); } patchring
-%destructor { ptarray_free($$); } nurbs_ptarray
+%destructor { ptarray_free($$); } weight_list
 %destructor { ptarray_free($$); } knot_list
 %destructor { lwgeom_free($$); } curvering_list
 %destructor { lwgeom_free($$); } triangle_list
