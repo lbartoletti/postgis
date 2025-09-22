@@ -1133,8 +1133,11 @@ LWGEOM* wkt_parser_nurbscurve_new(int degree, POINTARRAY *points, POINTARRAY *we
 		SET_PARSER_ERROR(PARSER_ERROR_OTHER);
 		return NULL;
 	}
-
+	/* Deep-copied by constructor */
+	if (weight_array) lwfree(weight_array);
+	if (knot_array) lwfree(knot_array);
 	return lwnurbscurve_as_lwgeom(curve);
+}
 }
 
 

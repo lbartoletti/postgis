@@ -934,7 +934,16 @@ static LWNURBSCURVE* lwnurbscurve_from_wkb_state(wkb_parse_state *s)
         }
     }
 
-    return lwnurbscurve_construct(s->srid, degree, points, weights, knots, npoints, nknots);
+    LWNURBSCURVE *curve = lwnurbscurve_construct(s->srid, degree, points, weights, knots, npoints, nknots);
+    if (!curve) {
+        if (weights) lwfree(weights);
+        if (knots) lwfree(knots);
+        if (points) ptarray_free(points); /* constructor did not take ownership on failure */
+        return NULL;
+    }
+    if (weights) lwfree(weights);
+    if (knots) lwfree(knots);
+    return curve;
 }
 
 /**

@@ -1204,6 +1204,13 @@ static size_t gserialized2_from_lwnurbscurve(const LWNURBSCURVE *curve, uint8_t 
     memcpy(loc, &(curve->nknots), sizeof(uint32_t));
     loc += sizeof(uint32_t);
 
+    /* Pad 4 bytes so subsequent double arrays are 8-byte aligned */
+    {
+        uint32_t pad = 0;
+        memcpy(loc, &pad, sizeof(uint32_t));
+        loc += sizeof(uint32_t);
+    }
+
     /*
      * VARIABLE SECTION 1: Write weight values (if any)
      *
@@ -1734,8 +1741,6 @@ lwnurbscurve_from_gserialized2_buffer(uint8_t *data_ptr, lwflags_t lwflags, size
     curve->bbox = NULL;          /* Bounding box computed separately if needed */
     curve->type = NURBSCURVETYPE;
     curve->flags = lwflags;      /* Dimensional flags passed from caller */
-    curve->type = NURBSCURVETYPE;
-    curve->flags = lwflags;      /* Dimensional flags passed from caller */
 
     /*
      * Skip past the geometry type (bytes 0-3)
@@ -1782,6 +1787,9 @@ lwnurbscurve_from_gserialized2_buffer(uint8_t *data_ptr, lwflags_t lwflags, size
     nknots = gserialized2_get_uint32_t(data_ptr);
     curve->nknots = nknots;
     data_ptr += 4;
+
+    /* Skip 4-byte pad to align following doubles (weights/knots/coords) */
+    data_ptr += sizeof(uint32_t);
 
     /*
      * VARIABLE SECTION 1: Read weight values (if any)
@@ -1867,7 +1875,6 @@ lwnurbscurve_from_gserialized2_buffer(uint8_t *data_ptr, lwflags_t lwflags, size
 
     return curve;
 }
-
 /**
  * Deserialize a geometry payload (GSERIALIZED v2 body) into an LWGEOM.
  *

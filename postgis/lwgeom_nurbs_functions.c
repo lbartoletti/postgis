@@ -320,7 +320,7 @@ Datum ST_MakeNurbsCurveWithWeights(PG_FUNCTION_ARGS)
 	/* Create NURBS curve with specified weights */
 	ctrl_pts = ptarray_clone_deep(line->points);
 	nurbs = lwnurbscurve_construct(control_geom->srid, degree, ctrl_pts,
-		weights, NULL, 0, 0);
+		weights, NULL, weight_count, 0);
 
 	if (!nurbs) {
 		pfree(weights);
@@ -342,7 +342,6 @@ Datum ST_MakeNurbsCurveWithWeights(PG_FUNCTION_ARGS)
 
 	PG_RETURN_POINTER(result);
 }
-
 /* ST_MakeNurbsCurve(degree, control_points, weights, knots) - Complete constructor */
 PG_FUNCTION_INFO_V1(ST_MakeNurbsCurveComplete);
 /**
@@ -652,7 +651,7 @@ Datum ST_NurbsCurveWeights(PG_FUNCTION_ARGS)
 		PG_RETURN_NULL();
 	}
 
-	result = float8_array_from_double_array(nurbs->weights, nurbs->points->npoints);
+	result = float8_array_from_double_array(nurbs->weights, (int)nurbs->nweights);
 	lwgeom_free(geom);
 
 	if (!result) {

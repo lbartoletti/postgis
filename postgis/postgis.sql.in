@@ -6998,6 +6998,13 @@ AS 'MODULE_PATHNAME','ST_RemoveSmallParts'
 LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE
 	_COST_MEDIUM;
 
-#include "postgis_nurbs.sql.in"
-
+CREATE OR REPLACE FUNCTION postgis_type_name(geomname varchar, coord_dimension integer, use_new_name boolean DEFAULT true)
+       ('TINM', 'TinM', 3),
+       ('TIN', 'TinZM', 4),
+       
+       ('NURBSCURVE',  'NurbsCurve', 2),
+       ('NURBSCURVE',  'NurbsCurveZ', 3),
+       ('NURBSCURVEM', 'NurbsCurveM', 3),
+       ('NURBSCURVE',  'NurbsCurveZM', 4) )
+        As g(old_name, new_name, coord_dimension)
 COMMIT;
