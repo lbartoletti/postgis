@@ -383,7 +383,11 @@ lwgeom_nurbs_to_sfcgal_nurbs(const LWNURBSCURVE *nurbs)
 
 	for (i = 0; i < nurbs->points->npoints; i++)
 	{
-		getPoint4d_p(nurbs->points, i, &pt);
+    if (!getPoint4d_p(nurbs->points, i, &pt)) {
+        for (uint32_t j = 0; j < i; j++) sfcgal_geometry_delete(points[j]);
+        lwfree(points);
+        return NULL;
+    }
 		if (FLAGS_GET_Z(nurbs->flags) && FLAGS_GET_M(nurbs->flags))
 			points[i] = sfcgal_point_create_from_xyzm(pt.x, pt.y, pt.z, pt.m);
 		else if (FLAGS_GET_Z(nurbs->flags))
@@ -471,8 +475,6 @@ sfcgal_nurbs_to_lwgeom_nurbs(const sfcgal_geometry_t* sfcgal_nurbs, int srid)
 	if (num_points > 0)
 	{
 		pt = sfcgal_nurbs_curve_control_point_n(sfcgal_nurbs, 0);
-		/* Check dimensionality */
-		has_z = (sfcgal_geometry_dimension(pt) >= 3 || sfcgal_geometry_is_3d(pt));
 		/* Check dimensionality */
 		has_z = (sfcgal_geometry_dimension(pt) >= 3 || sfcgal_geometry_is_3d(pt));
 #if POSTGIS_SFCGAL_VERSION >= 10308

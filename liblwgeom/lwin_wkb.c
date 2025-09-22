@@ -697,8 +697,6 @@ static LWCURVEPOLY* lwcurvepoly_from_wkb_state(wkb_parse_state *s)
 * POLYHEDRALSURFACETYPE
 */
 
-/* Forward declarations */
-LWGEOM* lwgeom_from_wkb_state(wkb_parse_state *s);
 static LWCOLLECTION* lwcollection_from_wkb_state(wkb_parse_state *s);
 static LWNURBSCURVE* lwnurbscurve_from_wkb_state(wkb_parse_state *s);
 
@@ -867,7 +865,14 @@ static LWNURBSCURVE* lwnurbscurve_from_wkb_state(wkb_parse_state *s)
                 weights[i] = 1.0;
             } else if (has_weight == 1) {
                 /* Custom weight follows */
+		wkb_parse_state_check(s, WKB_DOUBLE_SIZE); if (s->error) { lwfree(weights); ptarray_free(points); return NULL; }
                 weights[i] = double_from_wkb_state(s);
+                if (weights[i] <= 0.0) {
+                    lwerror("WKB NURBSCURVE: non-positive weight for point %d", i);
+                    lwfree(weights);
+                    ptarray_free(points);
+                    return NULL;
+                }
                 if (s->error) {
                     lwfree(weights);
                     ptarray_free(points);
@@ -913,6 +918,15 @@ static LWNURBSCURVE* lwnurbscurve_from_wkb_state(wkb_parse_state *s)
     for (uint32_t i = 0; i < nknots; i++) {
         knots[i] = double_from_wkb_state(s);
         if (s->error) {
+            lwfree(weights);
+            lwfree(knots);
+            ptarray_free(points);
+            return NULL;
+        }
+    }
+    for (uint32_t i = 1; i < nknots; i++) {
+        if (knots[i] < knots[i-1]) {
+            lwerror("WKB NURBSCURVE: knot vector must be non-decreasing");
             lwfree(weights);
             lwfree(knots);
             ptarray_free(points);

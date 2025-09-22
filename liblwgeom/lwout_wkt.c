@@ -26,6 +26,8 @@
 #include "liblwgeom_internal.h"
 #include "lwgeom_log.h"
 #include "stringbuffer.h"
+#include <stdbool.h>
+#include <math.h>
 
 static void lwgeom_to_wkt_sb(const LWGEOM *geom, stringbuffer_t *sb, int precision, uint8_t variant);
 
@@ -688,7 +690,7 @@ static void lwnurbscurve_to_wkt_sb(const LWNURBSCURVE *curve, stringbuffer_t *sb
         if (curve->weights && curve->nweights > 0) {
             for (uint32_t i = 0; i < curve->nweights; i++) {
                 if (i > 0) stringbuffer_append_len(sb, ",", 1);
-                stringbuffer_aprintf(sb, "%.*g", precision, curve->weights[i]);
+	    	stringbuffer_append_double(sb, curve->weights[i], precision);
             }
         } else {
             /* Generate default uniform weights (1.0 for each control point) */
@@ -705,7 +707,7 @@ static void lwnurbscurve_to_wkt_sb(const LWNURBSCURVE *curve, stringbuffer_t *sb
         stringbuffer_append_len(sb, ",(", 2);
         for (uint32_t i = 0; i < curve->nknots; i++) {
             if (i > 0) stringbuffer_append_len(sb, ",", 1);
-            stringbuffer_aprintf(sb, "%.*g", precision, curve->knots[i]);
+	    stringbuffer_append_double(sb, curve->weights[i], precision);
         }
         stringbuffer_append_len(sb, ")", 1);
     }

@@ -2240,10 +2240,15 @@ lwgeom_scale(LWGEOM *geom, const POINT4D *factor)
 		case LINETYPE:
 		case CIRCSTRINGTYPE:
 		case TRIANGLETYPE:
-		case NURBSCURVETYPE:
 		{
 			LWLINE *l = (LWLINE*)geom;
 			ptarray_scale(l->points, factor);
+			break;
+		}
+		case NURBSCURVETYPE:
+		{
+			LWNURBSCURVE *n = (LWNURBSCURVE*)geom;
+			ptarray_scale(n->points, factor);
 			break;
 		}
 		case POLYGONTYPE:

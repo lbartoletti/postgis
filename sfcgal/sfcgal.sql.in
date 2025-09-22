@@ -655,7 +655,7 @@ _COST_HIGH;
 CREATE OR REPLACE FUNCTION CG_NurbsCurveApproximate(data_points geometry, degree integer, tolerance float8, max_control_points integer DEFAULT 100)
 RETURNS geometry
 AS 'MODULE_PATHNAME', 'sfcgal_postgis_nurbs_curve_approximate'
-LANGUAGE 'c' IMMUTABLE PARALLEL SAFE
+LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE
 _COST_HIGH;
 
 COMMIT;

@@ -39,7 +39,7 @@ CREATE OR REPLACE FUNCTION ST_MakeNurbsCurve(degree integer, control_points geom
                                            weights double precision[], knots double precision[])
     RETURNS geometry
     AS 'MODULE_PATHNAME', 'ST_MakeNurbsCurveComplete'
-    LANGUAGE 'c' IMMUTABLE PARALLEL SAFE
+    LANGUAGE 'c' IMMUTABLE STRICT PARALLEL SAFE
     COST 150;
 
 
