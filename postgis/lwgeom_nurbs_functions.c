@@ -50,7 +50,18 @@ Datum ST_NurbsCurveIsValid(PG_FUNCTION_ARGS);
 static ArrayType* float8_array_from_double_array(double *values, int count);
 static double* double_array_from_float8_array(ArrayType *array, int *count);
 
-/* Utility function to create float8 array from double array */
+/**
+ * Convert a C array of doubles into a PostgreSQL float8 ArrayType.
+ *
+ * Returns a newly constructed PostgreSQL float8 array containing `count` elements
+ * copied from `values`. If `values` is NULL or `count` is not positive, NULL is
+ * returned.
+ *
+ * @param values C array of doubles to convert (must not be NULL for a valid result).
+ * @param count  Number of elements in `values` (must be > 0 for a valid result).
+ * @return Pointer to an ArrayType representing a PostgreSQL float8 array, or NULL
+ *         if input is invalid. The returned ArrayType is allocated in the current
+ *         PostgreSQL memory context. */
 static ArrayType*
 float8_array_from_double_array(double *values, int count)
 {
@@ -70,7 +81,23 @@ float8_array_from_double_array(double *values, int count)
 	return result;
 }
 
-/* Utility function to extract double array from float8 array */
+/**
+ * Convert a PostgreSQL float8 ArrayType to a newly allocated C double array.
+ *
+ * If `array` is NULL, sets `*count` to 0 and returns NULL. Otherwise allocates
+ * a double array (using palloc) with length equal to the number of elements in
+ * `array`, copies every non-NULL element into it, sets `*count` to that length,
+ * and returns the allocated pointer. The caller is responsible for freeing the
+ * returned array with pfree when no longer needed.
+ *
+ * The function will raise an error (ereport ERROR, ERRCODE_NULL_VALUE_NOT_ALLOWED)
+ * if any element of `array` is NULL.
+ *
+ * @param array PostgreSQL float8 ArrayType to convert.
+ * @param count Out parameter set to the number of doubles in the returned array
+ *              (0 if `array` is NULL).
+ * @return Pointer to a palloc'd double array, or NULL if `array` is NULL.
+ */
 static double*
 double_array_from_float8_array(ArrayType *array, int *count)
 {
@@ -105,6 +132,31 @@ double_array_from_float8_array(ArrayType *array, int *count)
 
 /* ST_MakeNurbsCurve(degree, control_points) - Basic constructor */
 PG_FUNCTION_INFO_V1(ST_MakeNurbsCurve);
+/**
+ * Construct a non-rational NURBS curve from a control LINESTRING and a degree.
+ *
+ * Creates a LWNURBSCURVE with uniform (implicit) weights from the provided
+ * control points LINESTRING and the specified degree, then serializes and
+ * returns it as a GSERIALIZED geometry.
+ *
+ * Expected inputs (passed via PG_FUNCTION_ARGS):
+ * - degree: integer in range [1, 10]
+ * - control_points: a LINESTRING geometry (GSERIALIZED) containing control points
+ *
+ * Behavior and constraints:
+ * - Degree must be between 1 and 10 inclusive; otherwise an ERROR is raised.
+ * - The control_points geometry must be a LINESTRING; otherwise an ERROR is raised.
+ * - The LINESTRING must contain at least (degree + 1) control points; otherwise an ERROR is raised.
+ * - The constructed NURBS uses uniform/default weights (i.e., no explicit weights or knots).
+ *
+ * Returns:
+ * - A GSERIALIZED representing the constructed NURBS curve on success.
+ * - NULL is returned if either input argument is SQL NULL.
+ *
+ * Errors:
+ * - Raises an ERROR for invalid parameters (degree out of range, wrong geometry type,
+ *   insufficient control points) or internal construction failure.
+ */
 Datum ST_MakeNurbsCurve(PG_FUNCTION_ARGS)
 {
 	uint32_t degree;
@@ -176,6 +228,23 @@ Datum ST_MakeNurbsCurve(PG_FUNCTION_ARGS)
 
 /* ST_MakeNurbsCurve(degree, control_points, weights) - Constructor with weights */
 PG_FUNCTION_INFO_V1(ST_MakeNurbsCurveWithWeights);
+/**
+ * Construct a NURBS curve using a degree, control points LINESTRING, and per-control-point weights.
+ *
+ * Given SQL arguments (degree INT, control_points GEOMETRY, weights FLOAT8[]), validates inputs and returns
+ * a serialized LWNURBSCURVE (GSERIALIZED) Datum representing the constructed NURBS curve.
+ *
+ * Validation performed:
+ * - NULL arguments: function returns SQL NULL.
+ * - degree must be between 1 and 10.
+ * - control_points must be a LINESTRING with at least degree + 1 points.
+ * - weights must be a non-NULL float8 array with length equal to the number of control points and all values > 0.
+ *
+ * On validation failure or construction failure the function raises a PostgreSQL error (ereport).  On success
+ * returns a pointer to a newly allocated GSERIALIZED containing the NURBS curve; caller (PostgreSQL) takes ownership.
+ *
+ * @return Datum pointer to the serialized NURBS curve (GSERIALIZED) or SQL NULL if any input argument is NULL.
+ */
 Datum ST_MakeNurbsCurveWithWeights(PG_FUNCTION_ARGS)
 {
 	uint32_t degree;
@@ -281,6 +350,29 @@ Datum ST_MakeNurbsCurveWithWeights(PG_FUNCTION_ARGS)
 
 /* ST_MakeNurbsCurve(degree, control_points, weights, knots) - Complete constructor */
 PG_FUNCTION_INFO_V1(ST_MakeNurbsCurveComplete);
+/**
+ * Construct a NURBS curve from degree, control points, and optional weights and knots.
+ *
+ * Creates and returns a NURBSCURVETYPE geometry built from the provided degree and
+ * control points LINESTRING. Optional `weights` and `knots` arrays may be supplied
+ * to produce a rational curve and/or specify the knot vector.
+ *
+ * Requirements and validation:
+ * - If either required argument (degree or control_points) is NULL the function
+ *   returns NULL.
+ * - `degree` must be between 1 and 10 (inclusive).
+ * - `control_points` must be a LINESTRING and contain at least `degree + 1` points.
+ * - If `weights` is provided, it must have the same length as the number of control
+ *   points and all weights must be > 0.
+ * - If `knots` is provided, its length must equal `npoints + degree + 1` and the
+ *   knot vector must be non-decreasing.
+ *
+ * On invalid input the function raises a PostgreSQL error with ERRCODE_INVALID_PARAMETER_VALUE.
+ *
+ * Return:
+ * - A pointer to a GSERIALIZED representing the constructed NURBS curve on success.
+ * - NULL if required arguments are NULL.
+ */
 Datum ST_MakeNurbsCurveComplete(PG_FUNCTION_ARGS)
 {
 	uint32_t degree;
@@ -433,6 +525,17 @@ Datum ST_MakeNurbsCurveComplete(PG_FUNCTION_ARGS)
 
 /* ST_NurbsCurveControlPoints(nurbscurve) - Extract control points */
 PG_FUNCTION_INFO_V1(ST_NurbsCurveControlPoints);
+/**
+ * Return the control points of a NURBS curve as a MULTIPOINT geometry.
+ *
+ * Accepts a serialized NURBS curve and returns a serialized MULTIPOINT containing
+ * the curve's control points. If the input is NULL, the function returns NULL.
+ *
+ * Errors:
+ * - Raises an error if the input is not a NURBS curve.
+ * - Raises an error if the NURBS curve has no control points.
+ * - Raises an internal error if the MULTIPOINT cannot be created.
+ */
 Datum ST_NurbsCurveControlPoints(PG_FUNCTION_ARGS)
 {
 	GSERIALIZED *pnurbs;
@@ -478,6 +581,16 @@ Datum ST_NurbsCurveControlPoints(PG_FUNCTION_ARGS)
 
 /* ST_NurbsCurveDegree(nurbscurve) - Get degree */
 PG_FUNCTION_INFO_V1(ST_NurbsCurveDegree);
+/**
+ * Return the polynomial degree of a NURBS curve.
+ *
+ * Given a NURBS curve geometry, returns its degree as an int32. If the input
+ * is NULL the function returns SQL NULL. If the input is not a NURBS curve
+ * an error is raised.
+ *
+ * @param nurbsgs A GSERIALIZED representing a NURBS curve (NULL allowed).
+ * @return degree of the NURBS curve as int32, or NULL when input is NULL.
+ */
 Datum ST_NurbsCurveDegree(PG_FUNCTION_ARGS)
 {
 	GSERIALIZED *pnurbs;
@@ -507,6 +620,17 @@ Datum ST_NurbsCurveDegree(PG_FUNCTION_ARGS)
 
 /* ST_NurbsCurveWeights(nurbscurve) - Get weights array */
 PG_FUNCTION_INFO_V1(ST_NurbsCurveWeights);
+/**
+ * Return the weight vector of a NURBS curve as a PostgreSQL float8 array.
+ *
+ * Given a serialized NURBS curve, returns an SQL float8[] containing the
+ * per-control-point weights. If the input is NULL, or the NURBS curve has
+ * no weights, or the internal conversion fails, the function returns NULL.
+ *
+ * The function raises an ERROR if the provided geometry is not a NURBS curve.
+ *
+ * @return float8[] of length equal to the number of control points, or NULL.
+ */
 Datum ST_NurbsCurveWeights(PG_FUNCTION_ARGS)
 {
 	GSERIALIZED *pnurbs;
@@ -545,6 +669,16 @@ Datum ST_NurbsCurveWeights(PG_FUNCTION_ARGS)
 
 /* ST_NurbsCurveKnots(nurbscurve) - Get knots array */
 PG_FUNCTION_INFO_V1(ST_NurbsCurveKnots);
+/**
+ * Return the knot vector of a NURBS curve as a PostgreSQL float8 array.
+ *
+ * If the input is not a NURBS curve, an error is raised. If the NURBS
+ * curve has no knot vector or the conversion to a float8 array fails,
+ * the function returns NULL.
+ *
+ * @param pnurbs GSERIALIZED pointer to a NURBS curve
+ * @return float8[] PostgreSQL array containing the knot vector, or NULL
+ */
 Datum ST_NurbsCurveKnots(PG_FUNCTION_ARGS)
 {
 	GSERIALIZED *pnurbs;
@@ -583,6 +717,15 @@ Datum ST_NurbsCurveKnots(PG_FUNCTION_ARGS)
 
 /* ST_NurbsCurveNumControlPoints(nurbscurve) - Get number of control points */
 PG_FUNCTION_INFO_V1(ST_NurbsCurveNumControlPoints);
+/**
+ * Get number of control points in a NURBS curve.
+ *
+ * Returns the count of control points for the provided NURBS curve GSERIALIZED.
+ *
+ * @param pnurbs GSERIALIZED representing a NURBS curve; if NULL the function returns NULL.
+ * @returns int32 number of control points (0 if the curve has no control points).
+ * @throws ERROR if the input is not a NURBS curve.
+ */
 Datum ST_NurbsCurveNumControlPoints(PG_FUNCTION_ARGS)
 {
 	GSERIALIZED *pnurbs;
@@ -612,6 +755,16 @@ Datum ST_NurbsCurveNumControlPoints(PG_FUNCTION_ARGS)
 
 /* ST_NurbsCurveIsRational(nurbscurve) - Check if curve is rational */
 PG_FUNCTION_INFO_V1(ST_NurbsCurveIsRational);
+/**
+ * Determine whether a NURBS curve is rational (has weights).
+ *
+ * Returns true if the provided NURBS curve contains a weight array, false otherwise.
+ * If the input is NULL the function returns SQL NULL. If the input is not a NURBS
+ * curve an error is raised.
+ *
+ * @param pnurbs GSERIALIZED NURBS curve to inspect.
+ * @return boolean true when the curve is rational, false when it is not.
+ */
 Datum ST_NurbsCurveIsRational(PG_FUNCTION_ARGS)
 {
 	GSERIALIZED *pnurbs;
@@ -641,6 +794,21 @@ Datum ST_NurbsCurveIsRational(PG_FUNCTION_ARGS)
 
 /* ST_NurbsCurveIsValid(nurbscurve) - Validate NURBS curve */
 PG_FUNCTION_INFO_V1(ST_NurbsCurveIsValid);
+/**
+ * Validate a NURBS curve geometry.
+ *
+ * Returns whether the given GSERIALIZED NURBS curve satisfies basic validity rules:
+ * - control points exist and their count >= degree + 1,
+ * - all weights are strictly positive (if a weight vector is present),
+ * - knot vector values are non-decreasing (checked up to the expected knot count).
+ *
+ * Note: If the input is NULL this function returns NULL. If the input is not a NURBS
+ * geometry, the function returns false. This routine performs basic checks only and
+ * does not fully verify knot-vector length or other advanced mathematical consistency.
+ *
+ * @param nurbscurve GSERIALIZED NURBSCURVE geometry to validate.
+ * @return boolean true if the basic validity checks pass, false otherwise; NULL if input is NULL.
+ */
 Datum ST_NurbsCurveIsValid(PG_FUNCTION_ARGS)
 {
 	GSERIALIZED *pnurbs;

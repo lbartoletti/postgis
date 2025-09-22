@@ -837,6 +837,24 @@ LWGEOM* wkt_parser_collection_add_geom(LWGEOM *col, LWGEOM *geom)
 	return lwcollection_as_lwgeom(lwcollection_add_lwgeom(lwgeom_as_lwcollection(col), geom));
 }
 
+/**
+ * Finalize a geometry collection by validating and harmonizing dimensionality, and set its collection type.
+ *
+ * Validates that the provided collection (geom) matches the explicit dimensionality tokens (Z/M) if present,
+ * harmonizes sub-geometry dimensionality when needed, and sets geom->type to the requested collection type.
+ * If geom is NULL an empty collection of the requested type is constructed (SRID_UNKNOWN) and returned.
+ *
+ * @param lwtype Target collection type (e.g., COLLECTIONTYPE).
+ * @param geom Geometry to finalize; may be NULL to produce an empty collection. On error this function frees geom.
+ * @param dimensionality Optional dimensionality token string (e.g. "Z", "M", "ZM"); used to enforce or harmonize Z/M presence.
+ *
+ * @return The finalized LWGEOM (possibly the input geom, modified), or NULL on error.
+ *
+ * Side effects:
+ * - May free the input geom on error.
+ * - May call wkt_parser_set_dims() to propagate dimensionality to sub-geometries.
+ * - On error sets parser error codes: PARSER_ERROR_MIXDIMS (dimensionality mismatch) or PARSER_ERROR_OTHER.
+ */
 LWGEOM* wkt_parser_collection_finalize(int lwtype, LWGEOM *geom, char *dimensionality)
 {
 	lwflags_t flags = wkt_dimensionality(dimensionality);
@@ -892,8 +910,13 @@ LWGEOM* wkt_parser_collection_finalize(int lwtype, LWGEOM *geom, char *dimension
 }
 
 /**
-* Build a 2D coordinate with weight (for NURBS) - stored as XYM
-*/
+ * Create a 2D control point for NURBS with the weight stored in the M component (XYM).
+ *
+ * @param c1 X coordinate.
+ * @param c2 Y coordinate.
+ * @param weight Weight for the NURBS control point (stored in M).
+ * @return POINT with X=c1, Y=c2, Z=0.0 and M=weight; flags indicate no Z and presence of M.
+ */
 POINT wkt_parser_nurbs_coord_3(double c1, double c2, double weight)
 {
 	POINT p;
@@ -908,8 +931,16 @@ POINT wkt_parser_nurbs_coord_3(double c1, double c2, double weight)
 }
 
 /**
-* Build a 3D coordinate with weight (for NURBS) - stored as XYZM
-*/
+ * Create a 3D control point for NURBS with the weight stored in the M component (XYZM).
+ *
+ * The returned POINT has X=c1, Y=c2, Z=c3, and M=weight, and has both Z and M flags enabled.
+ *
+ * @param c1 X coordinate.
+ * @param c2 Y coordinate.
+ * @param c3 Z coordinate.
+ * @param weight Curve weight stored in the point's M component.
+ * @return POINT initialized as an XYZM control point with appropriate flags set.
+ */
 POINT wkt_parser_nurbs_coord_4(double c1, double c2, double c3, double weight)
 {
 	POINT p;
@@ -928,8 +959,43 @@ POINT wkt_parser_nurbs_coord_4(double c1, double c2, double c3, double weight)
  */
 
 /**
- * Create a new NURBS curve with specification: degree, points, weights, knots
- * Can be called with degree=0 for simple format compatibility (uses degree 2)
+ * Construct a NURBS curve geometry from parsed components.
+ *
+ * Builds and returns a LWNURBSCURVE (as LWGEOM) using the supplied polynomial
+ * degree, control points, optional per-control-point weights, and optional
+ * knot vector. If degree == 0, degree 2 is used for backward compatibility.
+ *
+ * The function validates:
+ * - degree is in a supported range (1..10; 0 is treated as 2),
+ * - points count is at least degree + 1,
+ * - if weights are provided, their count equals the number of points and all
+ *   weights are positive (weights are read from the X coordinate of the
+ *   supplied weights POINTARRAY),
+ * - if knots are provided, their count equals points_count + degree + 1 and
+ *   the knot vector is non-decreasing (knot values are read from the X
+ *   coordinate of the supplied knots POINTARRAY),
+ * - dimensionality of the points is compatible with the optional
+ *   dimensionality token.
+ *
+ * Ownership and side effects:
+ * - The function takes ownership of the supplied POINTARRAY pointers: it will
+ *   free them on error and will consume them on success (they are passed into
+ *   the constructed NURBS curve). Caller must not use or free them after
+ *   calling this function.
+ * - On any validation or construction failure the function returns NULL and
+ *   sets the parser error state.
+ *
+ * @param degree Polynomial degree for the NURBS curve (0 treated as 2).
+ * @param points Control point array (must be non-NULL for a non-empty curve).
+ * @param weights Optional weight array (one weight per control point; weight
+ *                value is read from each point's X coordinate).
+ * @param knots Optional knot array (knot values read from each point's X
+ *              coordinate).
+ * @param dimensionality Optional dimensionality token (e.g. "Z", "M", "ZM")
+ *                        used to derive Z/M flags for the constructed curve.
+ *
+ * @return Pointer to the constructed LWGEOM representing the NURBS curve, or
+ *         NULL on error.
  */
 LWGEOM* wkt_parser_nurbscurve_new(int degree, POINTARRAY *points, POINTARRAY *weights, POINTARRAY *knots, char *dimensionality)
 {
@@ -1059,7 +1125,15 @@ LWGEOM* wkt_parser_nurbscurve_new(int degree, POINTARRAY *points, POINTARRAY *we
 
 
 /**
- * Create an empty NURBS curve with the specified dimensionality.
+ * Create an empty NURBS curve with the given dimensionality token.
+ *
+ * The `dimensionality` token (e.g., "Z", "M", "ZM", or NULL) controls whether
+ * the created empty NURBS geometry has Z and/or M components. The returned
+ * geometry uses SRID_UNKNOWN.
+ *
+ * @param dimensionality Dimensionality token (case-insensitive) or NULL for 2D.
+ * @return A newly allocated empty LWNURBSCURVE as an LWGEOM on success;
+ *         NULL on failure (parser error set). 
  */
 LWGEOM* wkt_parser_nurbscurve_empty(char *dimensionality)
 {
@@ -1079,6 +1153,16 @@ LWGEOM* wkt_parser_nurbscurve_empty(char *dimensionality)
 	return lwnurbscurve_as_lwgeom(curve);
 }
 
+/**
+ * Register a parsed geometry and apply an SRID.
+ *
+ * If `geom` is non-NULL, sets its SRID to `srid` when `srid` is not SRID_UNKNOWN and
+ * is within the valid range; otherwise sets the geometry SRID to SRID_UNKNOWN.
+ * Stores the geometry pointer in the global parser result object.
+ *
+ * @param geom Parsed geometry to register (may be NULL — function returns without action).
+ * @param srid Spatial reference identifier to assign to the geometry.
+ */
 void
 wkt_parser_geometry_new(LWGEOM *geom, int32_t srid)
 {

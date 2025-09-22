@@ -31,24 +31,30 @@
 #include "lwgeom_log.h"
 
 /**
- * Construct a new NURBS curve
+ * Construct a new NURBS curve.
  *
- * Creates a NURBS (Non-Uniform Rational B-Spline) curve from the provided
- * control points, weights, and knot vector. NURBS curves are parametric
- * curves defined by:
- * - Control points: Define the shape of the curve
- * - Weights: Make the curve "rational" (if NULL, curve is polynomial)
- * - Knot vector: Controls parameterization and continuity
- * - Degree: Polynomial degree of the curve segments
+ * Creates a NURBS (Non-Uniform Rational B-Spline) curve object from the
+ * provided control points, optional weights, and optional knot vector.
  *
- * @param srid Spatial reference system identifier
- * @param degree Polynomial degree (1-10, where 1=linear, 3=cubic)
- * @param points Control points array (takes ownership)
- * @param weights Weight array for rational curves (copied, can be NULL)
- * @param knots Knot vector (copied, can be NULL for uniform knots)
- * @param nweights Number of weights (must equal npoints if weights != NULL)
- * @param nknots Number of knots (must equal npoints + degree + 1 if provided)
- * @return New NURBS curve or NULL on invalid parameters
+ * Validation and ownership:
+ * - Returns NULL if degree is outside [1,10].
+ * - If `weights` is non-NULL, `nweights` must equal the number of control points.
+ * - If `knots` is non-NULL, `nknots` must equal npoints + degree + 1.
+ * - Ownership of `points` is transferred to the returned curve (caller must not free it).
+ * - `weights` and `knots`, if provided, are deep-copied into the new curve.
+ *
+ * Behavioral notes:
+ * - If `weights` is NULL, the curve is treated as non-rational (implicit weights = 1.0).
+ * - If `knots` is NULL, a uniform clamped knot vector will be generated on demand.
+ *
+ * @param srid Spatial reference identifier for the curve.
+ * @param degree Polynomial degree of the curve (1..10).
+ * @param points Control points array; ownership is transferred to the returned curve.
+ * @param weights Optional weights array; copied when non-NULL.
+ * @param knots Optional knot vector; copied when non-NULL.
+ * @param nweights Number of entries in `weights` (must match point count if `weights` provided).
+ * @param nknots Number of entries in `knots` (must equal npoints + degree + 1 if `knots` provided).
+ * @return Pointer to the newly allocated LWNURBSCURVE, or NULL on invalid parameters.
  */
 LWNURBSCURVE *
 lwnurbscurve_construct(int32_t srid, uint32_t degree, POINTARRAY *points,
@@ -247,17 +253,19 @@ lwnurbscurve_generate_uniform_knots(uint32_t degree, uint32_t npoints, uint32_t 
 }
 
 /**
- * Get knot vector for WKB output (generate uniform if none exists)
+ * Retrieve a knot vector suitable for WKB serialization.
  *
- * Returns a knot vector suitable for serialization to WKB format.
- * If the curve has an explicit knot vector, it is copied.
- * Otherwise, a uniform clamped knot vector is generated automatically.
+ * Returns a newly-allocated knot vector for the given NURBS curve. If the curve
+ * has an explicit knot vector it is deep-copied; otherwise a clamped uniform
+ * knot vector is generated from the curve degree and number of control points.
  *
- * The caller is responsible for freeing the returned array.
+ * The caller is responsible for freeing the returned array. If `curve` is NULL
+ * or has no control points, `*nknots_out` is set to 0 and NULL is returned.
  *
- * @param curve Source NURBS curve
- * @param nknots_out Output parameter for knot vector size
- * @return Newly allocated knot vector, or NULL for invalid/empty curves
+ * @param curve Source NURBS curve.
+ * @param nknots_out Output location which will be set to the number of knots
+ *                   in the returned array (set to 0 on NULL/empty input).
+ * @return Newly allocated array of knots, or NULL for invalid/empty curves.
  */
 double *
 lwnurbscurve_get_knots_for_wkb(const LWNURBSCURVE *curve, uint32_t *nknots_out)
@@ -281,14 +289,14 @@ lwnurbscurve_get_knots_for_wkb(const LWNURBSCURVE *curve, uint32_t *nknots_out)
 }
 
 /**
- * Convert to LWGEOM
+ * Cast a NURBS curve to the generic LWGEOM type.
  *
- * Performs a safe cast from LWNURBSCURVE to the base LWGEOM type.
- * This enables NURBS curves to be used in generic PostGIS geometry
- * operations through polymorphism.
+ * This performs a safe, no-op pointer cast from LWNURBSCURVE to LWGEOM
+ * so the curve can be used with APIs expecting LWGEOM without changing
+ * ownership or copying data.
  *
- * @param obj NURBS curve to cast
- * @return Same object cast as LWGEOM base type
+ * @param obj NURBS curve to cast (may be NULL)
+ * @return The same pointer value cast to LWGEOM*, or NULL if `obj` is NULL
  */
 LWGEOM *
 lwnurbscurve_as_lwgeom(const LWNURBSCURVE *obj)

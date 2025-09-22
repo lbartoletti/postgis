@@ -578,9 +578,19 @@ static void lwtin_to_wkt_sb(const LWTIN *tin, stringbuffer_t *sb, int precision,
 	stringbuffer_append_len(sb, ")", 1);
 }
 
-/*
-* POLYHEDRALSURFACE
-*/
+/**
+ * Emit a POLYHEDRALSURFACE WKT representation for the given LWPSURFACE.
+ *
+ * Writes the WKT form (e.g. `POLYHEDRALSURFACE ...`) into the provided string buffer,
+ * including dimension qualifiers unless suppressed by the variant flags. If the surface
+ * contains no polygons, emits the `EMPTY` token. Sub-geometries are emitted as child
+ * geometries (their type tokens are suppressed).
+ *
+ * @param psurf Polyhedral surface to convert to WKT.
+ * @param sb String buffer to append the generated WKT to.
+ * @param precision Number of decimal digits to use when formatting coordinates.
+ * @param variant Bitmask of WKT emission options (e.g. WKT_NO_TYPE, WKT_IS_CHILD, WKT_EXTENDED).
+ */
 static void lwpsurface_to_wkt_sb(const LWPSURFACE *psurf, stringbuffer_t *sb, int precision, uint8_t variant)
 {
 	uint32_t i = 0;
@@ -609,6 +619,29 @@ static void lwpsurface_to_wkt_sb(const LWPSURFACE *psurf, stringbuffer_t *sb, in
 	stringbuffer_append_len(sb, ")", 1);
 }
 
+/**
+ * Emit a NURBSCURVE as WKT into the provided stringbuffer.
+ *
+ * Produces the WKT representation for the given NURBSCURVE and appends it to
+ * sb. If the variant does not include WKT_NO_TYPE, the leading type token
+ * "NURBSCURVE" (with appropriate dimension qualifiers) is written. If the
+ * curve has no control points the token "EMPTY" is emitted.
+ *
+ * The WKT payload includes, in order: the curve degree, a parenthesized list
+ * of control points (coordinates only), an optional parenthesized list of
+ * weights, and an optional parenthesized knot vector. Knots are emitted only if
+ * present. Weights are emitted if they vary among themselves or if knots are
+ * emitted; when knots exist but weights are missing, a default uniform weight
+ * of 1 is emitted for each control point to preserve round-trip consistency.
+ *
+ * Numeric values (coordinates, weights, knots) are formatted using the given
+ * precision (passed to printf-style formatting).
+ *
+ * @param curve NURBSCURVE to format.
+ * @param sb Destination stringbuffer; WKT text is appended to it.
+ * @param precision Number of significant digits used when formatting numeric values.
+ * @param variant Bitmask of WKT emission flags (e.g., WKT_NO_TYPE to suppress the type token).
+ */
 static void lwnurbscurve_to_wkt_sb(const LWNURBSCURVE *curve, stringbuffer_t *sb, int precision, uint8_t variant)
 {
     if (!(variant & WKT_NO_TYPE)) {
@@ -680,9 +713,20 @@ static void lwnurbscurve_to_wkt_sb(const LWNURBSCURVE *curve, stringbuffer_t *sb
     stringbuffer_append_len(sb, ")", 1);
 }
 
-/*
-* Generic GEOMETRY
-*/
+/**
+ * Dispatches a geometry to the appropriate WKT emitter and appends result to a string buffer.
+ *
+ * Given a concrete LWGEOM subclass, selects the matching type-specific
+ * writer (POINT, LINESTRING, POLYGON, MULTI*, CURVE, etc.) and emits its
+ * Well-Known Text representation into the provided stringbuffer.
+ *
+ * @param geom Input geometry (may not be NULL).
+ * @param sb Destination stringbuffer to which WKT text is appended.
+ * @param precision Number of decimal digits to use when formatting coordinates.
+ * @param variant Bitmask selecting WKT variant/formatting flags (e.g., ISO/Extended/SFSQL and child/parenthesis behaviors).
+ *
+ * Note: Unsupported geometry types are reported via lwerror; this function itself does not return an error code. It has the side effect of modifying the supplied stringbuffer.
+ */
 static void lwgeom_to_wkt_sb(const LWGEOM *geom, stringbuffer_t *sb, int precision, uint8_t variant)
 {
 	LWDEBUGF(4, "lwgeom_to_wkt_sb: type %s, hasz %d, hasm %d",

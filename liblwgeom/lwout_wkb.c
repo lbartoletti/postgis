@@ -77,9 +77,24 @@ static int lwgeom_wkb_needs_srid(const LWGEOM *geom, uint8_t variant)
 	return LW_FALSE;
 }
 
-/*
-* GeometryType
-*/
+/**
+ * Compute the WKB geometry type code for a given LWGEOM and WKB variant.
+ *
+ * Maps the internal geometry type to the appropriate WKB type code and
+ * applies dimension and SRID encoding offsets/flags according to the
+ * selected variant. NURBSCURVETYPE always uses ISO-style dimension offsets
+ * (1000/2000/3000). For non-NURBS geometries:
+ * - WKB_EXTENDED sets Z/M bit flags and may set the SRID flag (determined
+ *   by lwgeom_wkb_needs_srid).
+ * - WKB_ISO adds numeric dimension offsets (1000 for Z, 2000 for M).
+ *
+ * If the geometry type is unsupported the function logs an error and
+ * returns 0.
+ *
+ * @param geom Geometry to encode (must be non-NULL).
+ * @param variant Bitflags describing WKB variant/encoding (e.g. WKB_EXTENDED, WKB_ISO, WKB_NO_SRID).
+ * @return WKB geometry type code with any applicable dimension/SRID modifiers.
+ */
 static uint32_t lwgeom_wkb_type(const LWGEOM *geom, uint8_t variant)
 {
 	uint32_t wkb_type = 0;
@@ -201,9 +216,24 @@ static inline int wkb_swap_bytes(uint8_t variant)
 	return LW_TRUE;
 }
 
-/*
-* Integer32
-*/
+/**
+ * Write a 32-bit unsigned integer into a WKB buffer honoring variant (binary or hex)
+ * and requested endianness, and return the pointer to the next write position.
+ *
+ * The function writes the 32-bit value `ival` into `buf` using WKB_INT_SIZE bytes
+ * (or twice that many ASCII hex characters when WKB_HEX is set in `variant`).
+ * If the requested byte order differs from the machine's native order the byte
+ * order is swapped before writing. On mismatch between sizeof(int) and
+ * WKB_INT_SIZE an error is logged.
+ *
+ * @param ival  The 32-bit unsigned integer to encode.
+ * @param buf   Destination buffer where encoded bytes (or hex chars) are written.
+ *              Must have space for at least WKB_INT_SIZE bytes (or 2*WKB_INT_SIZE
+ *              chars for hex variants).
+ * @param variant Bitmask specifying WKB encoding variant (may include WKB_HEX and
+ *                endianness flags). Controls hex vs binary output and byte order.
+ * @return Pointer into `buf` immediately after the bytes written.
+ */
 static uint8_t *
 integer_to_wkb_buf(const uint32_t ival, uint8_t *buf, uint8_t variant)
 {
@@ -249,9 +279,18 @@ integer_to_wkb_buf(const uint32_t ival, uint8_t *buf, uint8_t variant)
 	}
 }
 
-/*
-* Byte
-*/
+/**
+ * Write a single byte into a WKB buffer, using hex-encoding when requested.
+ *
+ * If the WKB_HEX bit is set in variant, writes two ASCII hex characters
+ * representing the byte and returns buf + 2; otherwise writes the raw byte
+ * and returns buf + 1.
+ *
+ * @param bval Byte value to write.
+ * @param buf Destination buffer to write into; must have at least 2 bytes if hex encoding is used.
+ * @param variant Bitmask of WKB variant flags (tests WKB_HEX).
+ * @returns Pointer to the next write position in buf after the written data.
+ */
 static uint8_t* byte_to_wkb_buf(const uint8_t bval, uint8_t *buf, uint8_t variant)
 {
 	if ( variant & WKB_HEX )
@@ -268,6 +307,20 @@ static uint8_t* byte_to_wkb_buf(const uint8_t bval, uint8_t *buf, uint8_t varian
 	}
 }
 
+/**
+ * Write an IEEE-754 NaN double into a WKB buffer.
+ *
+ * Writes an 8-byte NaN pattern to buf using either little-endian (NDR) or
+ * big-endian (XDR) byte order and either binary or hex-encoded output,
+ * controlled by flags in variant (WKB_NDR and WKB_HEX). Advances and returns
+ * a pointer to the position immediately after the written data.
+ *
+ * @param buf Buffer to write into; must have space for 8 raw bytes or 16 hex bytes.
+ * @param variant Bitmask of WKB flags (may include WKB_NDR for NDR vs XDR and
+ *                WKB_HEX to request hex-encoding).
+ * @return Pointer to buf advanced past the written NaN bytes (buf + 8 for binary,
+ *         buf + 16 for hex).
+ */
 static uint8_t* double_nan_to_wkb_buf(uint8_t *buf, uint8_t variant)
 {
 #define NAN_SIZE 8
@@ -675,6 +728,20 @@ static size_t lwcollection_to_wkb_size(const LWCOLLECTION *col, uint8_t variant)
 	return size;
 }
 
+/**
+ * Write a geometry collection into a WKB buffer.
+ *
+ * Encodes the collection header (endianness, geometry type, optional SRID,
+ * and number of sub-geometries) and then serializes each contained geometry.
+ * Sub-geometries inherit the parent's SRID and are written with WKB_NO_SRID.
+ *
+ * @param col Collection to serialize.
+ * @param buf Pointer to the current write position in the output buffer; the
+ *            function advances this pointer as it writes.
+ * @param variant Bitmask selecting WKB variant/flags (e.g. NDR/XDR, HEX,
+ *                EXTENDED, ISO). Controls SRID inclusion and encoding form.
+ * @return Updated buffer pointer positioned immediately after the written data.
+ */
 static uint8_t* lwcollection_to_wkb_buf(const LWCOLLECTION *col, uint8_t *buf, uint8_t variant)
 {
 	uint32_t i;
@@ -699,6 +766,24 @@ static uint8_t* lwcollection_to_wkb_buf(const LWCOLLECTION *col, uint8_t *buf, u
 	return buf;
 }
 
+/**
+ * Compute the number of bytes required to encode a NURBS curve as WKB (ISO/IEC 13249-3:2016).
+ *
+ * The computed size accounts for:
+ * - endianness marker and geometry type,
+ * - optional SRID integer when the variant requests it,
+ * - degree and control-point count,
+ * - per-control-point data: a byte-order marker, coordinate doubles for active dimensions,
+ *   a one-byte "weight present" flag, and an optional double weight when the point's weight != 1.0,
+ * - knot-count integer and knot double values (a uniform knot vector is generated if the curve has none).
+ *
+ * The caller must pass a valid non-NULL LWNURBSCURVE pointer. The variant argument influences
+ * whether an SRID integer is included (extended/ISO handling).
+ *
+ * @param curve NURBS curve to size (must be non-NULL).
+ * @param variant WKB variant flags that determine SRID inclusion and encoding options.
+ * @return number of bytes required to write the curve in WKB form.
+ */
 static size_t lwnurbscurve_to_wkb_size(const LWNURBSCURVE *curve, uint8_t variant)
 {
     size_t size = WKB_BYTE_SIZE + WKB_INT_SIZE; /* endian + type */
@@ -746,6 +831,25 @@ static size_t lwnurbscurve_to_wkb_size(const LWNURBSCURVE *curve, uint8_t varian
     return size;
 }
 
+/**
+ * Encode a NURBS curve into WKB (ISO/IEC 13249-3:2016) and write into a buffer.
+ *
+ * Produces an ISO-compliant WKB representation for a LWNURBSCURVE:
+ * - writes byte-order marker and geometry type, and optional SRID for extended variants;
+ * - writes curve degree and control-point count;
+ * - for each control point writes a per-point byte-order marker, coordinates (per point dimensionality),
+ *   a single-byte weight-presence flag, and the weight value when present (default weight = 1.0 is omitted);
+ * - writes the knot vector length followed by knot values (requests knots via lwnurbscurve_get_knots_for_wkb;
+ *   if none are returned a zero knot-count is written as a fallback).
+ *
+ * The function advances the provided buffer pointer as it writes. It may allocate a temporary knot array
+ * from lwnurbscurve_get_knots_for_wkb and frees it before returning.
+ *
+ * @param curve NURBS curve to encode.
+ * @param buf   Pointer to the output buffer where WKB bytes (or hex characters, depending on variant) are written.
+ * @param variant Bitmask selecting WKB variant/encoding options (endianness, extended/ISO/hex modes).
+ * @return Updated buffer pointer positioned immediately after the last written byte/character.
+ */
 static uint8_t* lwnurbscurve_to_wkb_buf(const LWNURBSCURVE *curve, uint8_t *buf, uint8_t variant)
 {
     uint32_t wkb_type = lwgeom_wkb_type((LWGEOM*)curve, variant);
@@ -820,9 +924,19 @@ static uint8_t* lwnurbscurve_to_wkb_buf(const LWNURBSCURVE *curve, uint8_t *buf,
     return buf;
 }
 
-/*
-* GEOMETRY
-*/
+/**
+ * Compute the number of bytes required to encode a geometry as WKB for a given variant.
+ *
+ * Determines the exact buffer size needed to write the provided LWGEOM in the specified
+ * WKB variant (handles ISO/extended/hex encodings, SRID inclusion, and per-geometry
+ * element sizing). Empty geometries are handled by the dedicated empty-to-WKB sizing
+ * unless the extended variant bit is set, in which case extended encoding rules apply.
+ *
+ * @param geom Pointer to the geometry to size; returns 0 and logs an error if NULL.
+ * @param variant Bitmask of WKB variant flags (e.g., WKB_EXTENDED, WKB_HEX, NDR/XDR)
+ *        that control dimensionality, SRID inclusion, and encoding form.
+ * @return Number of bytes required to encode `geom` under `variant`, or 0 on error.
+ */
 static size_t
 lwgeom_to_wkb_size(const LWGEOM *geom, uint8_t variant)
 {
@@ -887,7 +1001,24 @@ lwgeom_to_wkb_size(const LWGEOM *geom, uint8_t variant)
 	return size;
 }
 
-/* TODO handle the TRIANGLE type properly */
+/**
+ * Serialize a LWGEOM into WKB format, writing into the provided buffer.
+ *
+ * Dispatches to the appropriate type-specific writer based on geom->type.
+ * For empty geometries, if the WKB_EXTENDED flag is not set the geometry is
+ * written using the canonical "empty" representation; otherwise empties are
+ * preserved and written by the type-specific writer.
+ *
+ * @param geom Geometry to serialize (must be non-NULL).
+ * @param buf Destination buffer where WKB bytes will be written. The function
+ *            writes starting at this pointer and returns the pointer advanced
+ *            past the written data.
+ * @param variant Bitflags controlling WKB flavor (e.g., WKB_EXTENDED, WKB_HEX,
+ *                WKB_NDR/WKB_XDR). These flags influence SRID inclusion, hex
+ *                vs binary output, and other variant-specific encoding rules.
+ * @return Pointer to the buffer position immediately after the written WKB on
+ *         success; NULL (0) on unsupported/unknown geometry type or other error.
+ */
 
 static uint8_t* lwgeom_to_wkb_buf(const LWGEOM *geom, uint8_t *buf, uint8_t variant)
 {
