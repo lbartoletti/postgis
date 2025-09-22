@@ -117,7 +117,7 @@
 #define WKB_POLYHEDRALSURFACE_TYPE 15
 #define WKB_TIN_TYPE 16
 #define WKB_TRIANGLE_TYPE 17
-#define WKB_NURBSCURVE_TYPE 21 /* from Wikipedia, is it real? */
+#define WKB_NURBSCURVE_TYPE 21 /* ISO 19107:2019 - NURBS curve WKB type */
 
 /**
 * Macro that returns:

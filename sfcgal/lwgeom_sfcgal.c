@@ -1934,8 +1934,21 @@ sfcgal_postgis_nurbs_curve_from_points(PG_FUNCTION_ARGS)
 				errmsg("NURBS degree must be between 1 and 10")));
 	}
 
-	/* Extract control points */
+	/* Pre-validate that we'll have enough control points */
 	lwgeom = lwgeom_from_gserialized(input);
+	if (lwgeom && lwgeom->type == LINETYPE)
+	{
+		LWLINE *temp_line = (LWLINE*)lwgeom;
+		if (temp_line->points && temp_line->points->npoints < degree + 1)
+		{
+			lwgeom_free(lwgeom);
+			PG_FREE_IF_COPY(input, 0);
+			ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+					errmsg("Need at least %d control points for degree %d NURBS",
+						degree + 1, degree)));
+		}
+	}
+	/* Continue with existing validation... */
 	if (!lwgeom || (lwgeom->type != LINETYPE && lwgeom->type != MULTIPOINTTYPE))
 	{
 		if (lwgeom) lwgeom_free(lwgeom);
@@ -2549,10 +2562,9 @@ sfcgal_postgis_nurbs_curve_approximate(PG_FUNCTION_ARGS)
 	/* Validate degree */
 	if (degree < 1 || degree > 10)
 	{
-		lwpgnotice("NURBS degree is %d, must be between 1 and 10", degree);
 		PG_FREE_IF_COPY(input, 0);
 		ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
-				errmsg("NURBS degree must be between 1 and 10")));
+				errmsg("NURBS degree is %d, must be between 1 and 10", degree)));
 	}
 
 	/* Convert to lwgeom */

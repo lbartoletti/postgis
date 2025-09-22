@@ -1133,7 +1133,7 @@ LWGEOM* wkt_parser_nurbscurve_new(int degree, POINTARRAY *points, POINTARRAY *we
  *
  * @param dimensionality Dimensionality token (case-insensitive) or NULL for 2D.
  * @return A newly allocated empty LWNURBSCURVE as an LWGEOM on success;
- *         NULL on failure (parser error set). 
+ *         NULL on failure (parser error set).
  */
 LWGEOM* wkt_parser_nurbscurve_empty(char *dimensionality)
 {

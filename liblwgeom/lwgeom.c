@@ -2281,7 +2281,7 @@ lwgeom_scale(LWGEOM *geom, const POINT4D *factor)
  *
  * Creates and returns a newly allocated geometry instance with no coordinates
  * (an "empty" geometry), using the provided SRID and dimensionality flags.
- * For homogeneous collection types (MULTI*/COLLECTION/COMPOUND) the `type`
+ * For homogeneous collection types (MULTI*, COLLECTION, COMPOUND) the `type`
  * argument selects the specific collection subtype to construct.
  *
  * @param type Geometry type code (e.g., POINTTYPE, LINETYPE, POLYGONTYPE,
@@ -2291,8 +2291,8 @@ lwgeom_scale(LWGEOM *geom, const POINT4D *factor)
  *             and the function to return NULL.
  * @param srid Spatial reference identifier to assign to the constructed geometry
  *             (use SRID_UNKNOWN if not set).
- * @param hasz Non-zero to include a Z ordinate in the geometry; zero to omit Z.
- * @param hasm Non-zero to include an M ordinate in the geometry; zero to omit M.
+ * @param hasz Non-zero to include a Z ordinate in the geometry, zero to omit Z.
+ * @param hasm Non-zero to include an M ordinate in the geometry, zero to omit M.
  *
  * @return Pointer to the newly constructed LWGEOM, or NULL if `type` is not
  *         supported.

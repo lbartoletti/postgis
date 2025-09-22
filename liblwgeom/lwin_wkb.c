@@ -697,12 +697,13 @@ static LWCURVEPOLY* lwcurvepoly_from_wkb_state(wkb_parse_state *s)
 * POLYHEDRALSURFACETYPE
 */
 
-/**
+/* Forward declarations */
 LWGEOM* lwgeom_from_wkb_state(wkb_parse_state *s);
 static LWCOLLECTION* lwcollection_from_wkb_state(wkb_parse_state *s);
 static LWNURBSCURVE* lwnurbscurve_from_wkb_state(wkb_parse_state *s);
 
-/* Parse a collection (MULTI-*/COLLECTION/TINTYPE/COMPOUND/CURVEPOLY/etc.) from WKB state.
+/**
+ * Parse a collection (MULTI types, COLLECTION, TINTYPE, COMPOUND, CURVEPOLY, etc.) from WKB state.
  *
  * Reads the number of component geometries from the WKB parse state, constructs an
  * empty LWCOLLECTION of the current s->lwtype/srid/dimension flags, then iteratively
@@ -713,7 +714,7 @@ static LWNURBSCURVE* lwnurbscurve_from_wkb_state(wkb_parse_state *s);
  * - For an empty collection (component count == 0) returns the empty collection.
  * - If s->lwtype == POLYHEDRALSURFACETYPE, enables strict Z-closure checking by setting
  *   the LW_PARSER_CHECK_ZCLOSURE flag in s->check before parsing components.
- * - Increments s->depth while parsing to enforce recursion limits; if depth exceeds
+ * - Increments s->depth while parsing to enforce recursion limits, if depth exceeds
  *   LW_PARSER_MAX_DEPTH the function frees allocated resources, reports an error, and returns NULL.
  * - On failure to parse or to add a component, frees any allocated geometry/collection and returns NULL.
  *

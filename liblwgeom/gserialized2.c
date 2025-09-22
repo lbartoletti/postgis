@@ -1718,7 +1718,7 @@ lwcollection_from_gserialized2_buffer(uint8_t *data_ptr, lwflags_t lwflags, size
  * @return Pointer to a newly allocated LWNURBSCURVE on success; caller owns the memory.
  */
 static LWNURBSCURVE *
-lwnurbscurve_from_gserialized2_buffer(uint8_t *data_ptr, lwflags_t lwflags, size_t *size)
+lwnurbscurve_from_gserialized2_buffer(uint8_t *data_ptr, lwflags_t lwflags, size_t *size, int32_t srid)
 {
     uint8_t *start_ptr = data_ptr;
     LWNURBSCURVE *curve;
@@ -1730,13 +1730,10 @@ lwnurbscurve_from_gserialized2_buffer(uint8_t *data_ptr, lwflags_t lwflags, size
 
     /* Allocate and initialize the NURBS curve structure */
     curve = (LWNURBSCURVE*)lwalloc(sizeof(LWNURBSCURVE));
-    /* Allocate and initialize the NURBS curve structure */
-    curve = (LWNURBSCURVE*)lwalloc(sizeof(LWNURBSCURVE));
     curve->srid = srid;  /* Use the SRID passed from caller */
     curve->bbox = NULL;          /* Bounding box computed separately if needed */
     curve->type = NURBSCURVETYPE;
     curve->flags = lwflags;      /* Dimensional flags passed from caller */
-    curve->bbox = NULL;          /* Bounding box computed separately if needed */
     curve->type = NURBSCURVETYPE;
     curve->flags = lwflags;      /* Dimensional flags passed from caller */
 
@@ -1924,7 +1921,6 @@ lwgeom_from_gserialized2_buffer(uint8_t *data_ptr, lwflags_t lwflags, size_t *g_
 	case TINTYPE:
 	case COLLECTIONTYPE:
 		return (LWGEOM *)lwcollection_from_gserialized2_buffer(data_ptr, lwflags, g_size, srid);
-	case NURBSCURVETYPE:
 	case NURBSCURVETYPE:
 		return (LWGEOM *)lwnurbscurve_from_gserialized2_buffer(data_ptr, lwflags, g_size, srid);
 	default:

@@ -656,10 +656,10 @@ static void lwnurbscurve_to_wkt_sb(const LWNURBSCURVE *curve, stringbuffer_t *sb
 
     stringbuffer_append_len(sb, "(", 1);
 
-    /* Degré en premier */
+    /* Output degree first */
     stringbuffer_aprintf(sb, "%d,(", curve->degree);
 
-    /* Points de contrôle (sans poids) */
+    /* Control points (without weights) */
     ptarray_to_wkt_sb(curve->points, sb, precision, variant | WKT_NO_PARENS);
 
     stringbuffer_append_len(sb, ")", 1);
@@ -672,7 +672,7 @@ static void lwnurbscurve_to_wkt_sb(const LWNURBSCURVE *curve, stringbuffer_t *sb
     if (curve->weights && curve->nweights > 0) {
         bool has_varying_weights = false;
         for (uint32_t i = 1; i < curve->nweights && !has_varying_weights; i++) {
-            if (fabs(curve->weights[i] - curve->weights[0]) > 1e-10) {
+            if (fabs(curve->weights[i] - curve->weights[0]) > FP_TOLERANCE) {
                 has_varying_weights = true;
             }
         }
@@ -700,7 +700,7 @@ static void lwnurbscurve_to_wkt_sb(const LWNURBSCURVE *curve, stringbuffer_t *sb
         stringbuffer_append_len(sb, ")", 1);
     }
 
-    /* Vecteur de nœuds si présent */
+    /* Knot vector if present */
     if (output_knots) {
         stringbuffer_append_len(sb, ",(", 2);
         for (uint32_t i = 0; i < curve->nknots; i++) {
